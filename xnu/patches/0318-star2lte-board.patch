@@ -542,6 +542,49 @@ index 87fb8a8..6f9d3bb 100644
  		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
  		cdp->cpu_decrementer = -1; /* Large */
  		INTERRUPT_MASKED_DEBUG_START(rtclock_intr, DBG_INTR_TYPE_TIMER);
+diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
+index 76d70b9..a254584 100644
+--- a/osfmk/kern/exception.c
++++ b/osfmk/kern/exception.c
+@@ -1027,6 +1027,38 @@ sweet_sample_task(const char *name, int pid, task_t task)
+ 		int n;
+ 		uint64_t fp;
+ 
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++		/*
++		 * Boot 6: launchd stopped taking user exceptions after 7 syscalls
++		 * and its threads were never printed below. Print every thread's
++		 * scheduler state, what it waits on and its kernel backtrace (a
++		 * blocked thread's callee-saved state sits at kstackptr).
++		 */
++		n = snprintf(line, sizeof(line), "SMP %s kthr state 0x%x wait_event 0x%llx cont 0x%llx",
++		    name, thread->state, (uint64_t)thread->wait_event, (uint64_t)thread->continuation);
++		if (ss != NULL) {
++			n += snprintf(line + n, sizeof(line) - n, " user64 %d x16 %lld pc 0x%llx",
++			    is_saved_state64(ss), is_saved_state64(ss) ? (long long)get_saved_state_reg(ss, 16) : -1LL,
++			    is_saved_state64(ss) ? get_saved_state_pc(ss) : 0ULL);
++		}
++		if (thread != current_thread() && !(thread->state & TH_RUN) && thread->machine.kstackptr &&
++		    thread->kernel_stack) {
++			arm_kernel_saved_state_t *ks =
++			    &((struct thread_kernel_state *)thread->machine.kstackptr)->machine.ss;
++			uint64_t lo = thread->kernel_stack, hi = thread->kernel_stack + kernel_stack_size;
++			n += snprintf(line + n, sizeof(line) - n, " klr 0x%llx kbt", ks->lr);
++			for (uint64_t kfp = ks->fp; kfp >= lo && kfp + 16 <= hi && (kfp & 7) == 0 &&
++			    n < (int)sizeof(line) - 20;) {
++				uint64_t *frame = (uint64_t *)kfp;
++				n += snprintf(line + n, sizeof(line) - n, " 0x%llx", frame[1]);
++				if (frame[0] <= kfp) {
++					break;
++				}
++				kfp = frame[0];
++			}
++		}
++		printf("%s\n", line);
++#endif
+ 		if (ss == NULL || !is_saved_state64(ss)) {
+ 			continue;
+ 		}
 diff --git a/pexpert/pexpert/arm64/A5XELTE.h b/pexpert/pexpert/arm64/A5XELTE.h
 index 8f9c8a2..bd419ac 100644
 --- a/pexpert/pexpert/arm64/A5XELTE.h
