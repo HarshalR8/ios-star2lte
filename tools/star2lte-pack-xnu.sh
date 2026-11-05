@@ -12,7 +12,9 @@ mkdir -p out
 python3 tools/mkadt_star2lte.py out/star2lte.adt
 # No rd=: the S9+ UFS driver is not ported, so XNU should stop at the root
 # device. Console stays on (no a5fb_noconsole) and DECON sync is off.
-cmdline="debug=0xc serial=3 cpus=1 keepsyms=1 -enable_kprintf_spam -noprogress \
+# cpus=1 unless the extra arguments choose (XNU takes the first cpus=).
+case " $extra " in *" cpus="*) cpus= ;; *) cpus="cpus=1 " ;; esac
+cmdline="debug=0xc serial=3 ${cpus}keepsyms=1 -enable_kprintf_spam -noprogress \
 wdt=-1 -wdt_no_pmu sweetfb_nosync=1 $extra"
 rm -f out/star2lte.payload "$out"
 python3 tools/mkpayload.py "$kernel" out/star2lte.adt out/star2lte.payload --cmdline "$cmdline"
