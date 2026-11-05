@@ -14,3 +14,6 @@ shim/a5xelte/out4k/
 shim/a5xelte/outxnu/
 shim/herolte/out/
 *.img
+
+# star2lte local outputs (boot images, ADTs, photos)
+out/

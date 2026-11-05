@@ -1,7 +1,6 @@
 #!/bin/sh
-# Build the star2lte S-Boot Image out/probe.Image (stage-0 handoff probe).
-# The XNU loader follows once the probe has reported the handoff.
-# No packaging or flashing.
+# Build the star2lte S-Boot Images: out/probe.Image (stage-0 handoff probe)
+# and out/xnu_boot.Image (XNU loader). No packaging or flashing.
 # Any bare-metal or Linux aarch64 GCC works, e.g.
 #   CROSS=aarch64-none-elf- sh build.sh
 set -eu
@@ -38,3 +37,4 @@ PY
 }
 
 image probe probe.S probe.c fbtext.c ../fdt.c
+image xnu_boot xnu_boot.S xnu_boot.c fbtext.c ../fdt.c

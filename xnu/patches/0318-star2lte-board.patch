@@ -1,0 +1,146 @@
+diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
+index b269868..28877c0 100644
+--- a/iokit/Kernel/arm/SweetCPU.cpp
++++ b/iokit/Kernel/arm/SweetCPU.cpp
+@@ -91,7 +91,13 @@ SweetCPU::start(IOService *provider)
+ 	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
+ 		return false;
+ 	}
+-#if defined(HEROLTE)
++#if defined(STAR2LTE)
++	/* The ADT describes the boot A55 only (mkadt_star2lte.py). */
++	if (cpu->phys_id != A5XELTE_BOOT_MPIDR || topology->num_cpus != 1) {
++		panic(CPU_PORT_NAME " CPU: unsupported topology cpu=%u mpidr=0x%x count=%u",
++		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
++	}
++#elif defined(HEROLTE)
+ 	/* Logical 0..3 = A53 MPIDR 0x100..0x103 (boot cluster), 4..7 = Mongoose
+ 	 * MPIDR 0x0..0x3, the order of the ADT /cpus nodes (mkadt_herolte.py). */
+ 	uint32_t expected_mpidr = cpu->cpu_id < 4 ? A5XELTE_BOOT_MPIDR + cpu->cpu_id :
+@@ -119,7 +125,11 @@ SweetCPU::start(IOService *provider)
+ 	}
+ #if defined(A5XELTE)
+ #if defined(HEROLTE)
++#if defined(STAR2LTE)
++	cpuName = OSSymbol::withCStringNoCopy("Cortex-A55");
++#else
+ 	cpuName = OSSymbol::withCStringNoCopy(cpu->cpu_id < 4 ? "Cortex-A53" : "Mongoose");
++#endif
+ #else
+ 	cpuName = OSSymbol::withCStringNoCopy("Cortex-A53");
+ #endif
+diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
+index f1e25f9..67775ab 100644
+--- a/iokit/Kernel/arm/SweetFramebuffer.cpp
++++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
+@@ -315,7 +315,13 @@ AppleCLCD::start(IOService *provider)
+ #if defined(ARM64_BOARD_CONFIG_HEROLTE)
+ 		int no_sync = 0;
+ 		PE_parse_boot_argn("sweetfb_nosync", &no_sync, sizeof(no_sync));
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++		/* The Exynos 9810 DECON line counter is not mapped yet. */
++		(void)no_sync;
++		fDecon = 0;
++#else
+ 		fDecon = no_sync ? 0 : ml_io_map(0x13960000u, 0x1000);
++#endif
+ #endif
+ 	}
+ 	uint32_t hz = 10;
+diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
+index d1099ff..eb1c011 100644
+--- a/iokit/KernelConfigTables.cpp
++++ b/iokit/KernelConfigTables.cpp
+@@ -89,14 +89,16 @@ const char * gIOKernelConfigTables =
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = SweetHIDTouch;"
+     "   },"
+-#if !defined(ARM64_BOARD_CONFIG_A5XELTE) || defined(ARM64_BOARD_CONFIG_HEROLTE)
++/* STAR2LTE: the fuel gauge and Mali drivers use Exynos 8890 addresses. */
++#if (!defined(ARM64_BOARD_CONFIG_A5XELTE) || defined(ARM64_BOARD_CONFIG_HEROLTE)) && \
++    !defined(ARM64_BOARD_CONFIG_STAR2LTE)
+     "   {"
+     "     'IOClass'         = SweetBattery;"
+     "     'IOProviderClass' = IOResources;"
+     "     'IOMatchCategory' = SweetBattery;"
+     "   },"
+ #endif
+-#if defined(ARM64_BOARD_CONFIG_HEROLTE)
++#if defined(ARM64_BOARD_CONFIG_HEROLTE) && !defined(ARM64_BOARD_CONFIG_STAR2LTE)
+     "   {"
+     "     'IOClass'         = HeroGPU;"
+     "     'IOProviderClass' = IOResources;"
+diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
+index 10449ab..e4d3659 100644
+--- a/iokit/bsddev/IOKitBSDInit.cpp
++++ b/iokit/bsddev/IOKitBSDInit.cpp
+@@ -771,10 +771,16 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+ 		}
+ 	}
+ 
+-#if defined(ARM64_BOARD_CONFIG_A5XELTE)
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	/* The keys, touch and GPU drivers use Exynos 8890 addresses; the S9+
++	 * has none of them yet. */
++#elif defined(ARM64_BOARD_CONFIG_A5XELTE)
+ 	/* GPIO keys: Exynos 7580 or, on HEROLTE, the Exynos 8890 ALIVE pins. */
+ 	a5xelte_keys_init();
+-#if defined(ARM64_BOARD_CONFIG_HEROLTE)
++#endif
++#if defined(ARM64_BOARD_CONFIG_A5XELTE)
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++#elif defined(ARM64_BOARD_CONFIG_HEROLTE)
+ 	/* sec_ts on the Exynos 8890 HSI2C (bsd/dev/herolte_touch.c). */
+ 	extern void herolte_touch_probe(void);
+ 	herolte_touch_probe();
+diff --git a/makedefs/MakeInc.def b/makedefs/MakeInc.def
+index 6d0b107..3dd6d07 100644
+--- a/makedefs/MakeInc.def
++++ b/makedefs/MakeInc.def
+@@ -65,6 +65,13 @@ MACHINE_FLAGS_ARM64_SWEET = -DARM64_BOARD_CONFIG_SWEET                -march=arm
+ MACHINE_FLAGS_ARM64_A5XELTE = -DARM64_BOARD_CONFIG_A5XELTE            -mcpu=cortex-a53 -march=armv8-a+crypto
+ # Galaxy S7 (Exynos 8890) boots on a Cortex-A53 and reuses the A5XELTE port.
+ MACHINE_FLAGS_ARM64_HEROLTE = -DARM64_BOARD_CONFIG_A5XELTE -DARM64_BOARD_CONFIG_HEROLTE -mcpu=cortex-a53 -march=armv8-a+crypto
++# Galaxy S9+ (Exynos 9810, star2lte): the HEROLTE kernel with the S9+ board
++# constants (pexpert/arm64/A5XELTE.h). The star2lte branch builds it by
++# default; STAR2LTE=0 builds the Galaxy S7 kernel.
++STAR2LTE ?= 1
++ifeq ($(STAR2LTE),1)
++MACHINE_FLAGS_ARM64_HEROLTE += -DARM64_BOARD_CONFIG_STAR2LTE
++endif
+ 
+ 
+ #
+diff --git a/pexpert/pexpert/arm64/A5XELTE.h b/pexpert/pexpert/arm64/A5XELTE.h
+index 8f9c8a2..6e4f823 100644
+--- a/pexpert/pexpert/arm64/A5XELTE.h
++++ b/pexpert/pexpert/arm64/A5XELTE.h
+@@ -10,7 +10,27 @@
+ #define SWEET                         1
+ 
+ /* Firmware scanout buffer and the earliest XNU marker (physical). */
+-#if defined(ARM64_BOARD_CONFIG_HEROLTE)
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++/* Galaxy S9+ SM-G965F (Exynos 9810): the HEROLTE kernel on another board.
++ * S-Boot scans out 0xcc000000 (s3cfb.bootloaderfb, probe 1). */
++#pragma message("STAR2LTE board (Galaxy S9+)")
++#define HEROLTE                       1
++#define STAR2LTE                      1
++/* Boot CPU: Cortex-A55, MPIDR 0x81000000 (MT bit, Aff0/Aff1 = 0). Only the
++ * boot CPU is described until the secondary MPIDRs are read on the phone. */
++#define SWEET_SMP_MAX_CPUS            1
++#define A5XELTE_FB_PA                 0xcc000000
++#define A5XELTE_FB_WIDTH              1440
++#define A5XELTE_FB_HEIGHT             2960
++#define A5XELTE_FB_STRIDE             5760
++#define A5XELTE_FB_BLOCKS             9     /* 17 MB scanout in 2 MiB blocks */
++#define A5XELTE_FB_TEXT_SCALE         3
++#define A5XELTE_FB_DOT_PITCH          458   /* iPhone X userland density */
++/* Below the sec_debug logs at 0x91202000 and outside the reserved-memory
++ * nodes of the live DT, as on herolte. */
++#define A5XELTE_MARKER_PA             0x8ffff100
++#define A5XELTE_BOOT_MPIDR            0x0
++#elif defined(ARM64_BOARD_CONFIG_HEROLTE)
+ /* Galaxy S7 SM-G930F: S-Boot leaves DECON_F scanning out this buffer. */
+ #define HEROLTE                       1
+ /* Logical 0..3: Cortex-A53 "Apollo" MPIDR 0x100..0x103 (boot cluster);

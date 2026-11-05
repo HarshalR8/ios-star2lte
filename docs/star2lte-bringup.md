@@ -23,6 +23,29 @@ the phone**. Target order: iOS 16.7.16 (iPhone X userland) first, iOS 26 later.
 - Backups in `backup/` (gitignored), each SHA-256 checked against the
   partition: BOOT, RECOVERY, DTB, DTBO, EFS, CPEFS, PARAM.
 
+## Probe 1 on the phone (2026-11-05, commit `ace0abb`)
+
+BOOT image `out/probe-boot.img` (sha256 `15659112…1e9c`, readback matched).
+The user photographed the screen; the probe then rebooted into TWRP by
+itself (PMU `0x14060000` INFORM2/INFORM3/SYSIP_DAT0 + SWRESET works).
+The text appears over S-Boot's logo, so `0xcc000000` is the live scanout.
+
+| Value | Reading | Meaning |
+| --- | --- | --- |
+| EL | 1 | entered at EL1 (as herolte) |
+| SCTLR | `0x30C5183E` | MMU and caches off |
+| FDT | `0x8A000000` | same as herolte |
+| IMAGE | `0x800AC000` | where S-Boot placed our Image |
+| MIDR | `0x410FD051` | Cortex-A55 r0p1 |
+| MPIDR | `0x81000000` | **MT bit set**: affinity is Aff1/Aff2, not Aff0 |
+| MMFR0 | `0x101122` | 40-bit PA, 16-bit ASID, **16 KiB granule yes**, 4 KiB yes |
+| PFR0 | `0x10112222` | no GIC system registers (GICv2), RAS |
+| ISAR0 | `0x10211120` | LSE atomics (A55); the M3 cores may lack them |
+| ISAR1 | `0x100001` | **no pointer authentication** (APA/API = 0), LRCPC |
+| CNTFRQ | 0 | S-Boot does not set it: program 26 MHz before XNU |
+| TRIG | `0x3070` | DECON_F +0x70 before the probe wrote `0x1281` |
+| INITRD | `0x89000000..0x891FC200` | 16 MiB gap to the FDT, as herolte |
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
