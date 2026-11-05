@@ -1,3 +1,177 @@
+diff --git a/bsd/dev/a5xelte_keys.c b/bsd/dev/a5xelte_keys.c
+index 9576d7d..a12e57c 100644
+--- a/bsd/dev/a5xelte_keys.c
++++ b/bsd/dev/a5xelte_keys.c
+@@ -9,6 +9,10 @@
+  * 0x10580000, Power GPA2 pin 4, Volume Up/Down and Home GPA0 pins 3/4/5,
+  * active low.  S-Boot reads them too, so their mux is already set; the two
+  * DAT registers are sampled together (bits 0-7 GPA0, 8-15 GPA2).
++ *
++ * STAR2LTE (Galaxy S9+, Exynos 9810, exynos9810-star2lte_common.dtsi
++ * gpio_keys): the same pins in the ALIVE block at 0x14050000, except that
++ * the S9+ has no Home key: Bixby (GPA0-6, KEY_WINK) acts as Home.
+  */
+ #if defined(ARM64_BOARD_CONFIG_A5XELTE)
+ #include <sys/param.h>
+@@ -24,7 +28,11 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern void sweet_hid_key(int key, int down);
+ 
+ #if defined(ARM64_BOARD_CONFIG_HEROLTE)
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++#define A5_ALIVE_PA 0x14050000u
++#else
+ #define A5_ALIVE_PA 0x10580000u
++#endif
+ #define A5_GPA0_CON 0x00u
+ #define A5_GPA0_DAT 0x04u
+ #define A5_GPA0_PUD 0x08u
+@@ -67,7 +75,11 @@ a5_keys_sample(void)
+ 	return (uint16_t)((a5_keys_read(A5_GPA0_DAT) & 0xff) |
+ 	       ((a5_keys_read(A5_GPA2_DAT) & 0xff) << 8));
+ }
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++static const uint8_t a5_key_pins[4] = {8 + 4, 3, 4, 6};
++#else
+ static const uint8_t a5_key_pins[4] = {8 + 4, 3, 4, 5};
++#endif
+ #else
+ static uint16_t
+ a5_keys_sample(void)
+diff --git a/bsd/dev/herolte_touch.c b/bsd/dev/herolte_touch.c
+index a2772e1..c063dc5 100644
+--- a/bsd/dev/herolte_touch.c
++++ b/bsd/dev/herolte_touch.c
+@@ -13,6 +13,14 @@
+  * the controller's batcher, which takes the AP/APM hardware semaphore. The
+  * LDOs are switched on only if their programmed voltage is the expected one.
+  * Boot-arg herotouch=0 disables everything here.
++ *
++ * STAR2LTE (Galaxy S9+, Exynos 9810, exynos9810-star2lte_common.dtsi): the
++ * same sec_ts at 0x48, on HSI2C_10 0x104B0000 (USI03, pins GPP1-4/5
++ * function 2 in the PERIC0 block 0x10430000), INT on GPA1-0 in the ALIVE
++ * block 0x14050000. Its supplies are sec,regulator_boot_on: S-Boot leaves
++ * them on, so no PMIC access. The USI is put in I2C mode (PERIC0 sysreg
++ * 0x1041101C = I2C_SW_CONF, usi_v2.c) and out of reset (USI_CON 0xC4 = 0,
++ * i2c-exynos5.c exynos_usi_init).
+  */
+ #if defined(ARM64_BOARD_CONFIG_HEROLTE)
+ #include <sys/param.h>
+@@ -27,9 +35,25 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+ extern void sweet_hid_touch(int finger, int down, int x, int y);
+ void herolte_touch_probe(void);
+ 
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++#define HT_ALIVE_PA     0x14050000u     /* GPA1 CON +0x20, DAT +0x24 */
++#define HT_PINS_PA      0x10430000u     /* GPP1 CON +0x20, DAT +0x24, PUD +0x28 */
++#define HT_PINS_BANK    0x20u
++#define HT_PIN_SHIFT    16u             /* GPP1 pins 4 and 5, 4 bits each */
++#define HT_HSI2C_PA     0x104b0000u
++#define HT_USI_SYSREG   0x10411000u
++#define HT_USI_MODE     0x01cu          /* USI_03 */
++#define HT_USI_I2C      (1u << 2)
++#define HSI2C_USI_CON   0xc4
++#define HT_HEIGHT       2960u
++#else
+ #define HT_ALIVE_PA     0x10580000u     /* GPA1 CON +0x20, DAT +0x24 */
+ #define HT_PINS_PA      0x14ce0000u     /* GPF1 CON +0, DAT +4, PUD +8 */
++#define HT_PINS_BANK    0u
++#define HT_PIN_SHIFT    0u              /* GPF1 pins 0 and 1 */
+ #define HT_HSI2C_PA     0x14e10000u
++#define HT_HEIGHT       2560u
++#endif
+ #define HT_ADDR         0x48u
+ 
+ #define HSI2C_CTL       0x00
+@@ -700,7 +724,7 @@ ht_event(unsigned *lines)
+ 	}
+ 	/* Firmware coordinates span 0..4095 (DTB sec,max_coords 0xfff). */
+ 	int x = (int)(rx * 1440u / 4096u);
+-	int y = (int)(ry * 2560u / 4096u);
++	int y = (int)(ry * HT_HEIGHT / 4096u);
+ 	if (*lines < 64 && action != 2) {
+ 		(*lines)++;
+ 		printf("HEROLTE TOUCH: id=%d action=%u raw=%u,%u -> %d,%d\n", tid, action, rx, ry, x, y);
+@@ -730,8 +754,8 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+ 
+ 	/* Let the root mount and the persistent log start first. */
+ 	ht_msleep(3000);
+-	printf("HEROLTE TOUCH: GPF1 con=%#x pud=%#x dat=%#x; GPA1 con=%#x dat=%#x\n",
+-	    ht_rd(ht_pins, 0), ht_rd(ht_pins, 8), ht_rd(ht_pins, 4),
++	printf("HEROLTE TOUCH: pins con=%#x pud=%#x dat=%#x; GPA1 con=%#x dat=%#x\n",
++	    ht_rd(ht_pins, HT_PINS_BANK), ht_rd(ht_pins, HT_PINS_BANK + 8), ht_rd(ht_pins, HT_PINS_BANK + 4),
+ 	    ht_rd(ht_alive, 0x20), ht_rd(ht_alive, 0x24));
+ 	printf("HEROLTE TOUCH: HSI2C ctl=%#x conf=%#x fs1=%#x fs2=%#x fs3=%#x trans=%#x (as found)\n",
+ 	    ht_rd(ht_i2c, HSI2C_CTL), ht_rd(ht_i2c, HSI2C_CONF), ht_rd(ht_i2c, HSI2C_FS1),
+@@ -741,6 +765,23 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+ 	 * at ~1 s did not). 0215 read the APM state: config=0x1 (powered),
+ 	 * option=0 (held), firmware vectors in its SRAM, mailbox idle.
+ 	 */
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	vm_offset_t sysreg = ml_io_map(HT_USI_SYSREG, 0x1000);
++	if (!sysreg) {
++		printf("HEROLTE TOUCH: sysreg mapping failed\n");
++		return;
++	}
++	printf("HEROLTE TOUCH: USI03 mode=%#x usi_con=%#x (as found)\n",
++	    ht_rd(sysreg, HT_USI_MODE), ht_rd(ht_i2c, HSI2C_USI_CON));
++	ht_wr(sysreg, HT_USI_MODE, HT_USI_I2C);
++	ht_wr(ht_i2c, HSI2C_USI_CON, 0);
++	printf("HEROLTE TOUCH: supplies left on by S-Boot: pins dat=%#x GPA1 dat=%#x\n",
++	    ht_rd(ht_pins, HT_PINS_BANK + 4), ht_rd(ht_alive, 0x24));
++	/* GPP1-4/5 to HSI2C (function 2), no pulls (hsi2c10_bus); 4-bit fields. */
++	ht_wr(ht_pins, HT_PINS_BANK + 8, ht_rd(ht_pins, HT_PINS_BANK + 8) & ~(0xffu << HT_PIN_SHIFT));
++	ht_wr(ht_pins, HT_PINS_BANK, (ht_rd(ht_pins, HT_PINS_BANK) & ~(0xffu << HT_PIN_SHIFT)) |
++	    (0x22u << HT_PIN_SHIFT));
++#else
+ 	int mode = 1;
+ 	PE_parse_boot_argn("herotouch", &mode, sizeof(mode));
+ 	ht_apm_probe();
+@@ -757,6 +798,7 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+ 	/* GPF1-0/1 to HSI2C (function 2), no pulls, as the DTB hs-i2c7-bus. */
+ 	ht_wr(ht_pins, 8, ht_rd(ht_pins, 8) & ~0xfu);
+ 	ht_wr(ht_pins, 0, (ht_rd(ht_pins, 0) & ~0xffu) | 0x22u);
++#endif
+ 	ht_bus_init();
+ 
+ 	bool ok = ht_read(SEC_TS_READ_BOOT_STATUS, b, 1);
+@@ -826,7 +868,12 @@ herolte_touch_probe(void)
+ 	ht_alive = ml_io_map(HT_ALIVE_PA, 0x1000);
+ 	ht_pins = ml_io_map(HT_PINS_PA, 0x1000);
+ 	ht_i2c = ml_io_map(HT_HSI2C_PA, 0x1000);
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	/* No PMIC access on the S9+ (supplies left on by S-Boot). */
++	ht_pm = 1;
++#else
+ 	ht_pm = ml_io_map(PM_HSI2C_PA, 0x2000);
++#endif
+ 	if (!ht_alive || !ht_pins || !ht_i2c || !ht_pm) {
+ 		printf("HEROLTE TOUCH: MMIO mapping failed\n");
+ 		return;
+diff --git a/bsd/dev/herolte_ufs.c b/bsd/dev/herolte_ufs.c
+index a591abc..d1f5ee1 100644
+--- a/bsd/dev/herolte_ufs.c
++++ b/bsd/dev/herolte_ufs.c
+@@ -57,11 +57,20 @@ extern int hz;
+ #define REG_UTRLCLR     0x5c
+ #define REG_UTRLRSR     0x60
+ #define REG_VER         0x08
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++/* Exynos 9810: the same vendor HCI block, 0x1100 above the standard one
++ * (exynos9810.dtsi ufs@0x11120000 reg 1 = 0x11121100; ufs-exynos.h). */
++#define VS_TXPRDT_ENTRY_SIZE    0x1100
++#define VS_RXPRDT_ENTRY_SIZE    0x1104
++#define VS_UTRL_NEXUS_TYPE      0x1140
++#define HEROLTE_UFS_MAP         0x1300
++#else
+ /* Exynos vendor HCI registers, 0x100 above the standard block. */
+ #define VS_TXPRDT_ENTRY_SIZE    0x100
+ #define VS_RXPRDT_ENTRY_SIZE    0x104
+ #define VS_UTRL_NEXUS_TYPE      0x140
+ #define HEROLTE_UFS_MAP         0x300
++#endif
+ 
+ #define HCS_DP          (1u << 0)
+ #define HCS_UTRLRDY     (1u << 1)
 diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
 index b269868..28877c0 100644
 --- a/iokit/Kernel/arm/SweetCPU.cpp
@@ -71,24 +245,21 @@ index d1099ff..eb1c011 100644
      "     'IOClass'         = HeroGPU;"
      "     'IOProviderClass' = IOResources;"
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 10449ab..e4d3659 100644
+index 10449ab..f5f1c54 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -771,10 +771,16 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
- 		}
+@@ -772,9 +772,13 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
  	}
  
--#if defined(ARM64_BOARD_CONFIG_A5XELTE)
-+#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
-+	/* The keys, touch and GPU drivers use Exynos 8890 addresses; the S9+
-+	 * has none of them yet. */
-+#elif defined(ARM64_BOARD_CONFIG_A5XELTE)
- 	/* GPIO keys: Exynos 7580 or, on HEROLTE, the Exynos 8890 ALIVE pins. */
+ #if defined(ARM64_BOARD_CONFIG_A5XELTE)
+-	/* GPIO keys: Exynos 7580 or, on HEROLTE, the Exynos 8890 ALIVE pins. */
++	/* GPIO keys: Exynos 7580 or the Exynos 8890/9810 ALIVE pins. */
  	a5xelte_keys_init();
 -#if defined(ARM64_BOARD_CONFIG_HEROLTE)
-+#endif
-+#if defined(ARM64_BOARD_CONFIG_A5XELTE)
 +#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	/* sec_ts on the Exynos 9810 HSI2C_10; no Mali driver for the G72 yet. */
++	extern void herolte_touch_probe(void);
++	herolte_touch_probe();
 +#elif defined(ARM64_BOARD_CONFIG_HEROLTE)
  	/* sec_ts on the Exynos 8890 HSI2C (bsd/dev/herolte_touch.c). */
  	extern void herolte_touch_probe(void);
