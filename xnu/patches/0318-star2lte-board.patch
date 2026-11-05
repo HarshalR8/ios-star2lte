@@ -1,5 +1,5 @@
 diff --git a/bsd/dev/a5xelte_keys.c b/bsd/dev/a5xelte_keys.c
-index 9576d7d..a12e57c 100644
+index 9576d7d..a8d63b6 100644
 --- a/bsd/dev/a5xelte_keys.c
 +++ b/bsd/dev/a5xelte_keys.c
 @@ -9,6 +9,10 @@
@@ -13,19 +13,38 @@ index 9576d7d..a12e57c 100644
   */
  #if defined(ARM64_BOARD_CONFIG_A5XELTE)
  #include <sys/param.h>
-@@ -24,7 +28,11 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+@@ -24,16 +28,30 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void sweet_hid_key(int key, int down);
  
  #if defined(ARM64_BOARD_CONFIG_HEROLTE)
 +#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++/* Exynos 9810 ALIVE: etc1 at +0x00, GPA0 +0x20, GPA1 +0x40, GPA2 +0x60
++ * (pinctrl-exynos.c exynos9810_pin_banks0; boot 2 read etc1 by mistake). */
 +#define A5_ALIVE_PA 0x14050000u
++#define A5_GPA0_CON 0x20u
++#define A5_GPA0_DAT 0x24u
++#define A5_GPA0_PUD 0x28u
++#define A5_GPA2_CON 0x60u
++#define A5_GPA2_DAT 0x64u
++#define A5_GPA2_PUD 0x68u
 +#else
  #define A5_ALIVE_PA 0x10580000u
-+#endif
  #define A5_GPA0_CON 0x00u
  #define A5_GPA0_DAT 0x04u
  #define A5_GPA0_PUD 0x08u
-@@ -67,7 +75,11 @@ a5_keys_sample(void)
++#endif
+ #else
+ #define A5_ALIVE_PA 0x139b0000u
+ #endif
++#ifndef A5_GPA2_CON
+ #define A5_GPA2_CON 0x40u
+ #define A5_GPA2_DAT 0x44u
+ #define A5_GPA2_PUD 0x48u
++#endif
+ 
+ static vm_offset_t a5_alive;
+ /* Last Power press (mach_absolute_time); SweetFramebuffer.cpp reads it. */
+@@ -67,7 +85,11 @@ a5_keys_sample(void)
  	return (uint16_t)((a5_keys_read(A5_GPA0_DAT) & 0xff) |
  	       ((a5_keys_read(A5_GPA2_DAT) & 0xff) << 8));
  }
@@ -38,7 +57,7 @@ index 9576d7d..a12e57c 100644
  static uint16_t
  a5_keys_sample(void)
 diff --git a/bsd/dev/herolte_touch.c b/bsd/dev/herolte_touch.c
-index a2772e1..c063dc5 100644
+index a2772e1..333a921 100644
 --- a/bsd/dev/herolte_touch.c
 +++ b/bsd/dev/herolte_touch.c
 @@ -13,6 +13,14 @@
@@ -49,14 +68,14 @@ index a2772e1..c063dc5 100644
 + * STAR2LTE (Galaxy S9+, Exynos 9810, exynos9810-star2lte_common.dtsi): the
 + * same sec_ts at 0x48, on HSI2C_10 0x104B0000 (USI03, pins GPP1-4/5
 + * function 2 in the PERIC0 block 0x10430000), INT on GPA1-0 in the ALIVE
-+ * block 0x14050000. Its supplies are sec,regulator_boot_on: S-Boot leaves
++ * block 0x14050000 (GPA1 at +0x40). Its supplies are sec,regulator_boot_on: S-Boot leaves
 + * them on, so no PMIC access. The USI is put in I2C mode (PERIC0 sysreg
 + * 0x1041101C = I2C_SW_CONF, usi_v2.c) and out of reset (USI_CON 0xC4 = 0,
 + * i2c-exynos5.c exynos_usi_init).
   */
  #if defined(ARM64_BOARD_CONFIG_HEROLTE)
  #include <sys/param.h>
-@@ -27,9 +35,25 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
+@@ -27,9 +35,27 @@ extern vm_offset_t ml_io_map(vm_offset_t, vm_size_t);
  extern void sweet_hid_touch(int finger, int down, int x, int y);
  void herolte_touch_probe(void);
  
@@ -71,6 +90,7 @@ index a2772e1..c063dc5 100644
 +#define HT_USI_I2C      (1u << 2)
 +#define HSI2C_USI_CON   0xc4
 +#define HT_HEIGHT       2960u
++#define HT_GPA1         0x40u           /* after etc1 and GPA0 (exynos9810_pin_banks0) */
 +#else
  #define HT_ALIVE_PA     0x10580000u     /* GPA1 CON +0x20, DAT +0x24 */
  #define HT_PINS_PA      0x14ce0000u     /* GPF1 CON +0, DAT +4, PUD +8 */
@@ -78,11 +98,21 @@ index a2772e1..c063dc5 100644
 +#define HT_PIN_SHIFT    0u              /* GPF1 pins 0 and 1 */
  #define HT_HSI2C_PA     0x14e10000u
 +#define HT_HEIGHT       2560u
++#define HT_GPA1         0x20u
 +#endif
  #define HT_ADDR         0x48u
  
  #define HSI2C_CTL       0x00
-@@ -700,7 +724,7 @@ ht_event(unsigned *lines)
+@@ -657,7 +683,7 @@ ht_read(uint8_t reg, uint8_t *data, unsigned len)
+ static bool
+ ht_int_low(void)
+ {
+-	return !(ht_rd(ht_alive, 0x24) & 1u);
++	return !(ht_rd(ht_alive, HT_GPA1 + 4) & 1u);
+ }
+ 
+ static void
+@@ -700,7 +726,7 @@ ht_event(unsigned *lines)
  	}
  	/* Firmware coordinates span 0..4095 (DTB sec,max_coords 0xfff). */
  	int x = (int)(rx * 1440u / 4096u);
@@ -91,18 +121,20 @@ index a2772e1..c063dc5 100644
  	if (*lines < 64 && action != 2) {
  		(*lines)++;
  		printf("HEROLTE TOUCH: id=%d action=%u raw=%u,%u -> %d,%d\n", tid, action, rx, ry, x, y);
-@@ -730,8 +754,8 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+@@ -730,9 +756,9 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
  
  	/* Let the root mount and the persistent log start first. */
  	ht_msleep(3000);
 -	printf("HEROLTE TOUCH: GPF1 con=%#x pud=%#x dat=%#x; GPA1 con=%#x dat=%#x\n",
 -	    ht_rd(ht_pins, 0), ht_rd(ht_pins, 8), ht_rd(ht_pins, 4),
+-	    ht_rd(ht_alive, 0x20), ht_rd(ht_alive, 0x24));
 +	printf("HEROLTE TOUCH: pins con=%#x pud=%#x dat=%#x; GPA1 con=%#x dat=%#x\n",
 +	    ht_rd(ht_pins, HT_PINS_BANK), ht_rd(ht_pins, HT_PINS_BANK + 8), ht_rd(ht_pins, HT_PINS_BANK + 4),
- 	    ht_rd(ht_alive, 0x20), ht_rd(ht_alive, 0x24));
++	    ht_rd(ht_alive, HT_GPA1), ht_rd(ht_alive, HT_GPA1 + 4));
  	printf("HEROLTE TOUCH: HSI2C ctl=%#x conf=%#x fs1=%#x fs2=%#x fs3=%#x trans=%#x (as found)\n",
  	    ht_rd(ht_i2c, HSI2C_CTL), ht_rd(ht_i2c, HSI2C_CONF), ht_rd(ht_i2c, HSI2C_FS1),
-@@ -741,6 +765,23 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+ 	    ht_rd(ht_i2c, HSI2C_FS2), ht_rd(ht_i2c, HSI2C_FS3), ht_rd(ht_i2c, HSI2C_TRANS));
+@@ -741,6 +767,23 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
  	 * at ~1 s did not). 0215 read the APM state: config=0x1 (powered),
  	 * option=0 (held), firmware vectors in its SRAM, mailbox idle.
  	 */
@@ -117,7 +149,7 @@ index a2772e1..c063dc5 100644
 +	ht_wr(sysreg, HT_USI_MODE, HT_USI_I2C);
 +	ht_wr(ht_i2c, HSI2C_USI_CON, 0);
 +	printf("HEROLTE TOUCH: supplies left on by S-Boot: pins dat=%#x GPA1 dat=%#x\n",
-+	    ht_rd(ht_pins, HT_PINS_BANK + 4), ht_rd(ht_alive, 0x24));
++	    ht_rd(ht_pins, HT_PINS_BANK + 4), ht_rd(ht_alive, HT_GPA1 + 4));
 +	/* GPP1-4/5 to HSI2C (function 2), no pulls (hsi2c10_bus); 4-bit fields. */
 +	ht_wr(ht_pins, HT_PINS_BANK + 8, ht_rd(ht_pins, HT_PINS_BANK + 8) & ~(0xffu << HT_PIN_SHIFT));
 +	ht_wr(ht_pins, HT_PINS_BANK, (ht_rd(ht_pins, HT_PINS_BANK) & ~(0xffu << HT_PIN_SHIFT)) |
@@ -126,7 +158,12 @@ index a2772e1..c063dc5 100644
  	int mode = 1;
  	PE_parse_boot_argn("herotouch", &mode, sizeof(mode));
  	ht_apm_probe();
-@@ -757,6 +798,7 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+@@ -753,10 +796,11 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+ 	/* sec_ts_power() 5 ms, then probe waits 60 ms for the IC to boot. */
+ 	ht_msleep(70);
+ 	printf("HEROLTE TOUCH: powered: GPF1 dat=%#x (SDA/SCL should be high) GPA1 dat=%#x\n",
+-	    ht_rd(ht_pins, 4), ht_rd(ht_alive, 0x24));
++	    ht_rd(ht_pins, 4), ht_rd(ht_alive, HT_GPA1 + 4));
  	/* GPF1-0/1 to HSI2C (function 2), no pulls, as the DTB hs-i2c7-bus. */
  	ht_wr(ht_pins, 8, ht_rd(ht_pins, 8) & ~0xfu);
  	ht_wr(ht_pins, 0, (ht_rd(ht_pins, 0) & ~0xffu) | 0x22u);
@@ -134,7 +171,7 @@ index a2772e1..c063dc5 100644
  	ht_bus_init();
  
  	bool ok = ht_read(SEC_TS_READ_BOOT_STATUS, b, 1);
-@@ -826,7 +868,12 @@ herolte_touch_probe(void)
+@@ -826,7 +870,12 @@ herolte_touch_probe(void)
  	ht_alive = ml_io_map(HT_ALIVE_PA, 0x1000);
  	ht_pins = ml_io_map(HT_PINS_PA, 0x1000);
  	ht_i2c = ml_io_map(HT_HSI2C_PA, 0x1000);
@@ -148,7 +185,7 @@ index a2772e1..c063dc5 100644
  		printf("HEROLTE TOUCH: MMIO mapping failed\n");
  		return;
 diff --git a/bsd/dev/herolte_ufs.c b/bsd/dev/herolte_ufs.c
-index a591abc..d1f5ee1 100644
+index a591abc..ab9d510 100644
 --- a/bsd/dev/herolte_ufs.c
 +++ b/bsd/dev/herolte_ufs.c
 @@ -57,11 +57,20 @@ extern int hz;
@@ -172,6 +209,119 @@ index a591abc..d1f5ee1 100644
  
  #define HCS_DP          (1u << 0)
  #define HCS_UTRLRDY     (1u << 1)
+@@ -383,10 +392,112 @@ ufs_wake_device(void)
+ 	return error;
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++/* UIC commands (UFSHCI 5.6), for restarting the link S-Boot left. */
++#define REG_UICCMD      0x90
++#define REG_UCMDARG1    0x94
++#define REG_UCMDARG2    0x98
++#define REG_UCMDARG3    0x9c
++#define HCS_UCRDY       (1u << 3)
++#define IS_UCCS         (1u << 10)
++#define UIC_DME_ENABLE  0x12
++#define UIC_DME_RESET   0x14
++#define UIC_DME_LINKSTARTUP 0x16
++
++static bool
++ufs_poll(uint32_t off, uint32_t mask, uint32_t want, uint64_t ms)
++{
++	uint64_t deadline;
++	nanoseconds_to_absolutetime(ms * NSEC_PER_MSEC, &deadline);
++	deadline += mach_absolute_time();
++	while ((ufs_rd(off) & mask) != want) {
++		if (mach_absolute_time() > deadline) {
++			return false;
++		}
++	}
++	return true;
++}
++
++/* Returns the UIC result code (0 = success) or -1 on a timeout. */
++static int
++ufs_uic(uint32_t cmd, uint32_t arg1, uint32_t arg2, uint32_t arg3)
++{
++	if (!ufs_poll(REG_HCS, HCS_UCRDY, HCS_UCRDY, 100)) {
++		return -1;
++	}
++	ufs_wr(REG_IS, IS_UCCS);
++	ufs_wr(REG_UCMDARG1, arg1);
++	ufs_wr(REG_UCMDARG2, arg2);
++	ufs_wr(REG_UCMDARG3, arg3);
++	ufs_wr(REG_UICCMD, cmd);
++	if (!ufs_poll(REG_IS, IS_UCCS, IS_UCCS, 500)) {
++		return -1;
++	}
++	ufs_wr(REG_IS, IS_UCCS);
++	return (int)(ufs_rd(REG_UCMDARG2) & 0xff);
++}
++
++/*
++ * S-Boot on the Exynos 9810 hands over with HCE = 0 while HCS still shows
++ * the device present and the lists ready (boot 2: hce 0x0 hcs 0x10f).
++ * Boot-arg ufshce selects how to take the host:
++ *   1 (default) trust HCS: mainline Linux marks the Exynos HCE bit broken
++ *     (UFSHCI_QUIRK_BROKEN_HCE); the S-Boot link and PHY setup stay.
++ *   2 Linux's BROKEN_HCE enable: DME_RESET, DME_ENABLE, DME_LINKSTARTUP.
++ *   3 the standard enable: HCE = 1, then DME_LINKSTARTUP.
++ * Modes 2 and 3 restart the link without the 9810 PHY calibration tables
++ * (ufs-cal-9810.c) and leave it in PWM gear 1: slow, but readable.
++ */
++static int
++ufs_star2lte_host(uint32_t *hce, uint32_t *hcs)
++{
++	uint32_t mode = 1;
++	PE_parse_boot_argn("ufshce", &mode, sizeof(mode));
++	printf("HEROLTE UFS: S9+ host hce 0x%x hcs 0x%x is 0x%x cap 0x%x ver 0x%x, ufshce=%u\n",
++	    *hce, *hcs, ufs_rd(REG_IS), ufs_rd(REG_CAP), ufs_rd(REG_VER), mode);
++	if (mode == 1) {
++		if ((*hcs & HCS_DP) && (*hcs & HCS_UTRLRDY)) {
++			*hce |= 1;
++		}
++		return 0;
++	}
++	if (mode == 3) {
++		ufs_wr(REG_HCE, 1);
++		if (!ufs_poll(REG_HCE, 1, 1, 100)) {
++			printf("HEROLTE UFS: HCE stays 0 after enabling\n");
++			return ENXIO;
++		}
++	} else {
++		int r = ufs_uic(UIC_DME_RESET, 0, 0, 0);
++		int e = ufs_uic(UIC_DME_ENABLE, 0, 0, 0);
++		printf("HEROLTE UFS: DME_RESET %d DME_ENABLE %d\n", r, e);
++		if (r || e) {
++			return ENXIO;
++		}
++	}
++	int link = -1;
++	for (int i = 0; i < 4 && link != 0; i++) {
++		link = ufs_uic(UIC_DME_LINKSTARTUP, 0, 0, 0);
++		printf("HEROLTE UFS: DME_LINKSTARTUP try %d result %d hcs 0x%x\n", i, link, ufs_rd(REG_HCS));
++	}
++	if (link != 0 || !ufs_poll(REG_HCS, HCS_DP | HCS_UTRLRDY, HCS_DP | HCS_UTRLRDY, 100)) {
++		return ENXIO;
++	}
++	*hce = ufs_rd(REG_HCE) | 1;
++	*hcs = ufs_rd(REG_HCS);
++	return 0;
++}
++#endif
++
+ static int
+ ufs_take_over_host(void)
+ {
+ 	uint32_t hce = ufs_rd(REG_HCE), hcs = ufs_rd(REG_HCS);
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	if (ufs_star2lte_host(&hce, &hcs)) {
++		return ENXIO;
++	}
++#endif
+ 	if (!(hce & 1) || !(hcs & HCS_DP) || !(hcs & HCS_UTRLRDY)) {
+ 		printf("HEROLTE UFS: host not ready (hce 0x%x hcs 0x%x)\n", hce, hcs);
+ 		return ENXIO;
 diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
 index b269868..28877c0 100644
 --- a/iokit/Kernel/arm/SweetCPU.cpp
