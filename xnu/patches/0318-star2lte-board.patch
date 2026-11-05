@@ -57,7 +57,7 @@ index 9576d7d..a8d63b6 100644
  static uint16_t
  a5_keys_sample(void)
 diff --git a/bsd/dev/herolte_touch.c b/bsd/dev/herolte_touch.c
-index a2772e1..a2a5937 100644
+index a2772e1..b1dc41f 100644
 --- a/bsd/dev/herolte_touch.c
 +++ b/bsd/dev/herolte_touch.c
 @@ -13,6 +13,15 @@
@@ -104,7 +104,26 @@ index a2772e1..a2a5937 100644
  #define HT_ADDR         0x48u
  
  #define HSI2C_CTL       0x00
-@@ -657,7 +684,7 @@ ht_read(uint8_t reg, uint8_t *data, unsigned len)
+@@ -554,9 +581,18 @@ ht_bus_init(void)
+ 	ht_wr(ht_i2c, HSI2C_CTL, 0x80000009u);  /* SW reset, master, I2C mode */
+ 	ht_wr(ht_i2c, HSI2C_CTL, 0x00000009u);
+ 	ht_wr(ht_i2c, HSI2C_TIMEOUT, 0);
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	/* 400 kHz from the 200 MHz USI03 clock, the values Linux's
++	 * exynos5_i2c_set_timing programs on 104b0000.hsi2c (TWRP dmesg:
++	 * DIV = 33). Boot 12 used herolte's divider 1 and got NO_DEV_ACK. */
++	ht_wr(ht_i2c, HSI2C_FS1, 0x01f0ff00u);
++	ht_wr(ht_i2c, HSI2C_FS2, 0x030003e0u);
++	ht_wr(ht_i2c, HSI2C_FS3, 0x00210000u);
++#else
+ 	ht_wr(ht_i2c, HSI2C_FS1, 0x78787800u);
+ 	ht_wr(ht_i2c, HSI2C_FS2, 0x3c007878u);
+ 	ht_wr(ht_i2c, HSI2C_FS3, 0x000100f0u);
++#endif
+ 	ht_wr(ht_i2c, HSI2C_SLA, 0x3cu);
+ 	ht_wr(ht_i2c, HSI2C_TRAILING, 0xfu);
+ 	ht_wr(ht_i2c, HSI2C_CONF, 0x80000000u);  /* AUTO mode */
+@@ -657,7 +693,7 @@ ht_read(uint8_t reg, uint8_t *data, unsigned len)
  static bool
  ht_int_low(void)
  {
@@ -113,7 +132,7 @@ index a2772e1..a2a5937 100644
  }
  
  static void
-@@ -700,7 +727,7 @@ ht_event(unsigned *lines)
+@@ -700,7 +736,7 @@ ht_event(unsigned *lines)
  	}
  	/* Firmware coordinates span 0..4095 (DTB sec,max_coords 0xfff). */
  	int x = (int)(rx * 1440u / 4096u);
@@ -122,7 +141,7 @@ index a2772e1..a2a5937 100644
  	if (*lines < 64 && action != 2) {
  		(*lines)++;
  		printf("HEROLTE TOUCH: id=%d action=%u raw=%u,%u -> %d,%d\n", tid, action, rx, ry, x, y);
-@@ -722,6 +749,200 @@ ht_event(unsigned *lines)
+@@ -722,6 +758,200 @@ ht_event(unsigned *lines)
  	return true;
  }
  
@@ -323,7 +342,7 @@ index a2772e1..a2a5937 100644
  static void
  ht_thread(__unused void *arg, __unused wait_result_t wr)
  {
-@@ -730,9 +951,9 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+@@ -730,9 +960,9 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
  
  	/* Let the root mount and the persistent log start first. */
  	ht_msleep(3000);
@@ -336,7 +355,7 @@ index a2772e1..a2a5937 100644
  	printf("HEROLTE TOUCH: HSI2C ctl=%#x conf=%#x fs1=%#x fs2=%#x fs3=%#x trans=%#x (as found)\n",
  	    ht_rd(ht_i2c, HSI2C_CTL), ht_rd(ht_i2c, HSI2C_CONF), ht_rd(ht_i2c, HSI2C_FS1),
  	    ht_rd(ht_i2c, HSI2C_FS2), ht_rd(ht_i2c, HSI2C_FS3), ht_rd(ht_i2c, HSI2C_TRANS));
-@@ -741,6 +962,30 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+@@ -741,6 +971,30 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
  	 * at ~1 s did not). 0215 read the APM state: config=0x1 (powered),
  	 * option=0 (held), firmware vectors in its SRAM, mailbox idle.
  	 */
@@ -367,7 +386,7 @@ index a2772e1..a2a5937 100644
  	int mode = 1;
  	PE_parse_boot_argn("herotouch", &mode, sizeof(mode));
  	ht_apm_probe();
-@@ -753,10 +998,11 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
+@@ -753,10 +1007,11 @@ ht_thread(__unused void *arg, __unused wait_result_t wr)
  	/* sec_ts_power() 5 ms, then probe waits 60 ms for the IC to boot. */
  	ht_msleep(70);
  	printf("HEROLTE TOUCH: powered: GPF1 dat=%#x (SDA/SCL should be high) GPA1 dat=%#x\n",
@@ -380,7 +399,7 @@ index a2772e1..a2a5937 100644
  	ht_bus_init();
  
  	bool ok = ht_read(SEC_TS_READ_BOOT_STATUS, b, 1);
-@@ -826,7 +1072,12 @@ herolte_touch_probe(void)
+@@ -826,7 +1081,12 @@ herolte_touch_probe(void)
  	ht_alive = ml_io_map(HT_ALIVE_PA, 0x1000);
  	ht_pins = ml_io_map(HT_PINS_PA, 0x1000);
  	ht_i2c = ml_io_map(HT_HSI2C_PA, 0x1000);
