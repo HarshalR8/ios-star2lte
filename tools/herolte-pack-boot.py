@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Inspect or repack a Samsung herolte (SM-G930F) BOOT image.
+"""Inspect or repack a Samsung herolte (SM-G930F) or star2lte (SM-G965F,
+--chip 9810) BOOT image.
 
 Host-side only: never opens a block device and never flashes the phone.
 The stock BOOT may contain private data; keep it and every output off Git.
@@ -105,8 +106,8 @@ def cmd_pack(args):
         image.extend(b"\0" * (-len(image) % 4096))
         image.extend(payload)
     version, entries = dtbh_entries(b["dt"])
-    if version is None or not any(e[0] == 8890 for e in entries):
-        raise SystemExit("stock DT has no Exynos 8890 DTBH entry; refusing")
+    if version is None or not any(e[0] == args.chip for e in entries):
+        raise SystemExit(f"stock DT has no Exynos {args.chip} DTBH entry; refusing")
     stock_hdr = image_header(b["kernel"])
     if stock_hdr:
         text_offset, _, flags = stock_hdr
@@ -160,6 +161,8 @@ def main():
     pack.add_argument("--append", type=Path,
                       help="SWEETXNU payload appended to IMAGE (kernel slot)")
     pack.add_argument("--partition-size", type=int)
+    pack.add_argument("--chip", type=int, default=8890,
+                      help="DTBH chip the stock BOOT must carry (9810 for star2lte)")
     args = ap.parse_args()
     {"info": cmd_info, "pack": cmd_pack}[args.cmd](args)
 
