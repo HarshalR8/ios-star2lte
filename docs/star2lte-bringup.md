@@ -56,6 +56,23 @@ PASSED), lo0/gif0/stf0, then stopped as expected at `Waiting on <dict>
 IOMedia Apple_HFS`. Boot CPU, GICv2, timer, second-bank RAM and the
 framebuffer console work on the S9+.
 
+## iOS boots (2026-11-05, boot 8, kernel run 42008085162)
+
+The path from XNU boot 1 to iOS, one fix per boot:
+
+- **UFS (boot 2-3):** S-Boot hands over HCE = 0 with HCS = 0x10f; trusting
+  HCS (ufshce=1, like Linux's BROKEN_HCE) works. USERDATA reads/writes.
+- **GPIO (boot 3):** the 9810 ALIVE block has etc1 first: GPA0/1/2 at
+  +0x20/+0x40/+0x60. Keys work, Bixby is Home.
+- **PAN (boot 7):** launchd spun in mach_vm_allocate: bcopyin faulted
+  forever because the A55 sets PSTATE.PAN on every exception while
+  SCTLR_EL1.SPAN = 0. Fixed by setting SPAN and clearing PAN at start.
+
+Boot 8 (`out/boot8.txt`, user photos): Apple logo, then the lock screen;
+Bixby works as Home. 664 processes exec'd, SpringBoard running, one CPU
+saturated (xpcproxy, SpringBoard, suggestd...), AppleCLCD at native
+1440x2960: 9.3 fps, 5.5 ms per frame copy. Touch still unpowered.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
