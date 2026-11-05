@@ -9,11 +9,13 @@ The raw area is kept next to OUT as OUT.bin. Both may hold device
 identifiers and userland messages; keep them out of git.
 """
 import struct
+import os
 import subprocess
 import sys
 from pathlib import Path
 
-DEV = '/dev/block/platform/155a0000.ufs/by-name/USERDATA'
+# HEROLTE_LOG_DEV overrides it (star2lte: /dev/block/platform/11120000.ufs/by-name/USERDATA).
+DEV = os.environ.get('HEROLTE_LOG_DEV', '/dev/block/platform/155a0000.ufs/by-name/USERDATA')
 BLOCK = 4096
 RING = 4 << 20
 

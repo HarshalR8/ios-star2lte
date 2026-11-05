@@ -185,7 +185,7 @@ index a2772e1..333a921 100644
  		printf("HEROLTE TOUCH: MMIO mapping failed\n");
  		return;
 diff --git a/bsd/dev/herolte_ufs.c b/bsd/dev/herolte_ufs.c
-index a591abc..ab9d510 100644
+index a591abc..f023997 100644
 --- a/bsd/dev/herolte_ufs.c
 +++ b/bsd/dev/herolte_ufs.c
 @@ -57,11 +57,20 @@ extern int hz;
@@ -322,6 +322,35 @@ index a591abc..ab9d510 100644
  	if (!(hce & 1) || !(hcs & HCS_DP) || !(hcs & HCS_UTRLRDY)) {
  		printf("HEROLTE UFS: host not ready (hce 0x%x hcs 0x%x)\n", hce, hcs);
  		return ENXIO;
+@@ -654,6 +765,28 @@ herolte_log_thread(__unused void *arg, __unused wait_result_t wr)
+ 			extern unsigned int vm_page_free_count, vm_page_active_count, vm_page_inactive_count;
+ 			printf("HEROLTE LOG: alive %u s, MB free %u active %u inactive %u\n", ticks * 10, vm_page_free_count / 64,
+ 			    vm_page_active_count / 64, vm_page_inactive_count / 64);
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++			/* osfmk/arm64/sleh.c: user exceptions by class, IRQs by INTID. */
++			extern uint32_t star2lte_user_exc[64], star2lte_irq_count[1024];
++			char line[300];
++			int n = snprintf(line, sizeof(line), "STAR2LTE COUNTS: exc");
++			for (unsigned c = 0; c < 64 && n < 140; c++) {
++				if (star2lte_user_exc[c]) {
++					n += snprintf(line + n, sizeof(line) - n, " ec%02x=%u", c, star2lte_user_exc[c]);
++				}
++			}
++			n += snprintf(line + n, sizeof(line) - n, " | irq");
++			for (unsigned i = 0; i < 1024 && n < (int)sizeof(line) - 24; i++) {
++				if (star2lte_irq_count[i]) {
++					n += snprintf(line + n, sizeof(line) - n, " %u=%u", i, star2lte_irq_count[i]);
++				}
++			}
++			printf("%s\n", line);
++			extern uint64_t star2lte_tick_pc[8];
++			printf("STAR2LTE TICK PC (bit0 = user): %llx %llx %llx %llx %llx %llx %llx %llx\n",
++			    star2lte_tick_pc[0], star2lte_tick_pc[1], star2lte_tick_pc[2], star2lte_tick_pc[3],
++			    star2lte_tick_pc[4], star2lte_tick_pc[5], star2lte_tick_pc[6], star2lte_tick_pc[7]);
++#endif
+ 		}
+ 		a5xelte_log_snapshot(&ring, &rsize, &total);
+ 		if (total == flushed) {
 diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
 index b269868..daa3265 100644
 --- a/iokit/Kernel/arm/SweetCPU.cpp
@@ -435,6 +464,67 @@ index 6d0b107..3dd6d07 100644
  
  
  #
+diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
+index 87fb8a8..ba74e8d 100644
+--- a/osfmk/arm64/sleh.c
++++ b/osfmk/arm64/sleh.c
+@@ -598,6 +598,20 @@ is_platform_error(uint32_t esr)
+ 	return fault_code == FSC_SYNC_PARITY;
+ }
+ 
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++/*
++ * STAR2LTE bring-up counters, printed by the persistent log's heartbeat
++ * (bsd/dev/herolte_ufs.c). Boot 4: launchd used a whole CPU without ever
++ * touching a user page; these tell a user fault loop from an IRQ storm.
++ */
++uint32_t star2lte_user_exc[64];
++uint32_t star2lte_irq_count[1024];
++/* Interrupted PC at the last 8 timer ticks; bit 0 set = it was user mode. */
++uint64_t star2lte_tick_pc[8];
++uint32_t star2lte_tick_n;
++static uint32_t star2lte_exc_logged;
++#endif
++
+ void
+ sleh_synchronous(arm_context_t *context, uint32_t esr, vm_offset_t far)
+ {
+@@ -629,6 +643,17 @@ sleh_synchronous(arm_context_t *context, uint32_t esr, vm_offset_t far)
+ 	}
+ #endif
+ 	bool is_user = PSR64_IS_USER(get_saved_state_cpsr(state));
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	if (is_user) {
++		uint32_t n = ++star2lte_user_exc[class & 63];
++		if (star2lte_exc_logged < 40 || (n & 0xfffff) == 0) {
++			star2lte_exc_logged++;
++			printf("STAR2LTE EXC: ec 0x%x esr 0x%x far 0x%llx pc 0x%llx lr 0x%llx count %u\n",
++			    (unsigned)class, esr, (uint64_t)far, get_saved_state_pc(state),
++			    get_saved_state_lr(state), n);
++		}
++	}
++#endif
+ 
+ 	/*
+ 	 * Use KERNEL_DEBUG_CONSTANT_IST here to avoid producing tracepoints
+@@ -1880,10 +1905,17 @@ sleh_irq(arm_saved_state_t *state)
+ 	uint32_t intid = (uint32_t)(iar & 0xFFFFFF);
+ #endif
+ 
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	star2lte_irq_count[intid & 1023]++;
++#endif
+ 	if (intid >= 1020 && intid <= 1023) {
+ 		return; /* spurious */
+ 	}
+ 	if (intid == timer_intid) {
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++		star2lte_tick_pc[star2lte_tick_n++ & 7] = (get_saved_state_pc(state) & ~1ULL) |
++		    (PSR64_IS_USER(get_saved_state_cpsr(state)) ? 1 : 0);
++#endif
+ 		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
+ 		cdp->cpu_decrementer = -1; /* Large */
+ 		INTERRUPT_MASKED_DEBUG_START(rtclock_intr, DBG_INTR_TYPE_TIMER);
 diff --git a/pexpert/pexpert/arm64/A5XELTE.h b/pexpert/pexpert/arm64/A5XELTE.h
 index 8f9c8a2..bd419ac 100644
 --- a/pexpert/pexpert/arm64/A5XELTE.h
