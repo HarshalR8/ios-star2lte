@@ -737,6 +737,25 @@ index ee9f8de..6c301ad 100644
  	commpage_init_arm_optional_features(&bits);
  #endif
  
+diff --git a/osfmk/arm64/machine_routines.c b/osfmk/arm64/machine_routines.c
+index a1f2a91..d71c164 100644
+--- a/osfmk/arm64/machine_routines.c
++++ b/osfmk/arm64/machine_routines.c
+@@ -1207,6 +1207,14 @@ ml_get_boot_cluster_type(void)
+ int
+ ml_get_cpu_number(uint32_t phys_id)
+ {
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	/* DynamIQ A55 MPIDR (MT set): core in Aff1 or Aff0, ADT ids 0..3. As
++	 * the reset vector (start.s); ADT ids themselves pass unchanged.
++	 * Boot 10: cpu1 started (PSCI rc 0) but never found its CPU data. */
++	if (phys_id & (1U << 24)) {
++		phys_id = ((phys_id >> 8) & 0xff) | (phys_id & 0xff);
++	}
++#endif
+ 	phys_id &= MPIDR_AFF1_MASK | MPIDR_AFF0_MASK;
+ 
+ 	for (unsigned i = 0; i < topology_info.num_cpus; i++) {
 diff --git a/osfmk/arm64/proc_reg.h b/osfmk/arm64/proc_reg.h
 index e01c124..d31ec97 100644
 --- a/osfmk/arm64/proc_reg.h
@@ -828,6 +847,29 @@ index 87fb8a8..6f9d3bb 100644
  		sleh_interrupt_handler_prologue(state, DBG_INTR_TYPE_TIMER);
  		cdp->cpu_decrementer = -1; /* Large */
  		INTERRUPT_MASKED_DEBUG_START(rtclock_intr, DBG_INTR_TYPE_TIMER);
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 00b0198..aaada0c 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -143,7 +143,17 @@ LEXT(reset_vector)
+ 	adrp	x19, EXT(ResetHandlerData)@page			// Get address of the reset handler data
+ 	add		x19, x19, EXT(ResetHandlerData)@pageoff
+ 	mrs		x15, MPIDR_EL1						// Load MPIDR to get CPU number
+-#if HAS_CLUSTER || defined(SWEET)
++#if defined(STAR2LTE)
++	/* DynamIQ Cortex-A55 (MT bit 24 set, boot CPU 0x81000000): the core is
++	 * Aff1 (or Aff0); the ADT calls the A55s 0..3. Mongoose M3: Aff1:Aff0
++	 * (0x100..0x103). ml_get_cpu_number() maps MPIDR the same way. */
++	and		x0, x15, #0xFFFF
++	tbz		x15, #24, 1f
++	ubfx	x1, x15, #8, #8
++	and		x0, x15, #0xFF
++	orr		x0, x0, x1
++1:
++#elif HAS_CLUSTER || defined(SWEET)
+ 	and		x0, x15, #0xFFFF					// Full Aff1:Aff0 (SWEET: core in Aff1)
+ #else
+ 	and		x0, x15, #0xFF						// CPU number is in MPIDR Affinity Level 0
 diff --git a/osfmk/kern/exception.c b/osfmk/kern/exception.c
 index 76d70b9..a254584 100644
 --- a/osfmk/kern/exception.c
