@@ -46,6 +46,16 @@ The text appears over S-Boot's logo, so `0xcc000000` is the live scanout.
 | TRIG | `0x3070` | DECON_F +0x70 before the probe wrote `0x1281` |
 | INITRD | `0x89000000..0x891FC200` | 16 MiB gap to the FDT, as herolte |
 
+## XNU boot 1 (2026-11-05, kernel run 41982460115, `out/xnu-boot-1.img`)
+
+No `rd=`. Two photos: XNU reached `ASXELTE CPU: cpu=0 mpidr=0x0 came alive;
+SGI1 OK`, `1/1 CPUs initialized`, a 20 ms timer test (21.02 ms: 26 MHz from
+the ADT is right), VM bootstrap, zone init, IOKit, `AppleCLCD 1440x2960
+stride 5760 at 0xcc000000`, MAC policies, HFS, Skywalk self-tests (all
+PASSED), lo0/gif0/stf0, then stopped as expected at `Waiting on <dict>
+IOMedia Apple_HFS`. Boot CPU, GICv2, timer, second-bank RAM and the
+framebuffer console work on the S9+.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
