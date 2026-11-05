@@ -73,6 +73,18 @@ Bixby works as Home. 664 processes exec'd, SpringBoard running, one CPU
 saturated (xpcproxy, SpringBoard, suggestd...), AppleCLCD at native
 1440x2960: 9.3 fps, 5.5 ms per frame copy. Touch still unpowered.
 
+## Boots 10-12: 4 cores and touch power (2026-11-06)
+
+- **4 cores (boot 12, `cpus=4`):** `4/4 CPUs initialized, SGI1 verified`. Boot 10 hung
+  because the DynamIQ A55s report the core in MPIDR Aff1 (MT set); the reset vector and
+  `ml_get_cpu_number` now map MT MPIDRs to ADT ids 0..3.
+- **ACPM:** the firmware's `struct ipc_channel` is 72 bytes with `channel_info` at +16 (not
+  Linux's 68/+12). Channel 2 (PMIC): len 5, size 16. LDO35 read `0x2c` (1.8 V) and LDO43
+  `0x30` (3.0 V), both disabled; enabling them raised SDA/SCL (`dat 0xc0 -> 0xf0`).
+- **I2C:** transfers then ended in `NO_DEV_ACK`. TWRP's kernel programs `104b0000.hsi2c` with
+  FS1 `0x01F0FF00`, FS2 `0x030003E0`, FS3 `0x00210000` (200 MHz, DIV 33, 400 kHz); herolte's
+  values set divider 1. Fixed in the next build.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
