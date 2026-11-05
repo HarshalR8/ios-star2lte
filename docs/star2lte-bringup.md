@@ -85,6 +85,28 @@ saturated (xpcproxy, SpringBoard, suggestd...), AppleCLCD at native
   FS1 `0x01F0FF00`, FS2 `0x030003E0`, FS3 `0x00210000` (200 MHz, DIV 33, 400 kHz); herolte's
   values set divider 1. Fixed in the next build.
 
+## Boots 13-15: touch works (2026-11-06)
+
+- **Boot 13:** with the HSI2C timing fixed the IC answered (boot status 0x20, id `ac 37 61 01 00`)
+  and iOS opened the touch HID service, but other reads returned 0xff.
+- **Boot 14:** the IC stayed up for 3 s; only herolte's commands failed. The S9+ IC uses the newer
+  sec_ts set: READ_ONE_EVENT 0x60, SENSE_ON 0x10, CLEAR_EVENT_STACK 0x62, TS_STATUS 0xAF, and
+  byte 0 of an event is `eid:2 tid:4 tchsta:2` (LSB first, coordinate eid 0, tid from 1).
+- **Boot 15 (`cpus=4`):** touch works (press/release with coordinates, the lock screen swipe
+  opened the home screen). Then the IC dropped off the bus (NODEV, NO_DEV_ACK). The UI was
+  unusable: a dozen widget extensions used 50-70% of a core each, kernel_task ~220%; 10 fps.
+
+## Next boot (kernel run 42030602818)
+
+Touch power-cycle recovery after 10 lost reads; `herowidgets=0` refuses every program whose name
+contains `Widget`. Pack it with:
+
+    tools/star2lte-pack-xnu.sh xnu/out/run42030602818/kernel.development.herolte out/xnu-boot-16.img \
+      "$(cat out/ios-bootargs.txt) sweettop=1 cpus=4 herowidgets=0 heronoexec=vmd,bluetoothd"
+
+Then try `cpus=8` (the M3s; iOS gets ARMv8.0-only features), and a scaled canvas for speed.
+The Mali-G72 GPU is the large next project (herolte's GPU code is ~3800 lines for Midgard).
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
