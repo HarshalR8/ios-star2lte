@@ -99,4 +99,10 @@ The framebuffer at `0xcc000000` must also stay out of XNU's free memory.
 2. Loader + `MACHINE_CONFIG=STAR2LTE` XNU with the table above, `cpus=1`.
 3. UFS root at `0x11120000`, then USERDATA `sda25`.
 4. iOS display at 1440×2960 (CPU copy), buttons, `sec_ts` touch.
-5. All 8 cores; later Mali-G72; later iOS 26.
+5. All 8 cores (patch 0318, `cpus=N`).
+6. Wi-Fi: BCM4361 on the 9810 PCIe host (herolte's BCM4359 msgbuf driver,
+   firmware from the untouched VENDOR partition).
+7. Jailbreak layer as syncmodz/ios-s9 (Procursus bootstrap, ElleKit, Sileo,
+   fetched from the official sources, not redistributed).
+8. Mali-G72 (Bifrost) GPU; later iOS 26; at the very end, on request,
+   Android + iOS dual boot.
