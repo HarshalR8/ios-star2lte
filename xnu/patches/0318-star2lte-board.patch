@@ -57,7 +57,7 @@ index 9576d7d..a8d63b6 100644
  static uint16_t
  a5_keys_sample(void)
 diff --git a/bsd/dev/herolte_gl.c b/bsd/dev/herolte_gl.c
-index 5e1f965..684a327 100644
+index 5e1f965..8562976 100644
 --- a/bsd/dev/herolte_gl.c
 +++ b/bsd/dev/herolte_gl.c
 @@ -75,7 +75,7 @@ herolte_gl_dyld_flags(void)
@@ -81,7 +81,7 @@ index 5e1f965..684a327 100644
 +	if (hgl_widgets < 0 && !PE_parse_boot_argn("herowidgets", &hgl_widgets, sizeof(hgl_widgets))) {
 +		hgl_widgets = 1;
 +	}
-+	if (hgl_widgets == 0 && strstr(base, "Widget") != NULL) {
++	if (hgl_widgets == 0 && strnstr(base, "Widget", strlen(base) + 1) != NULL) {
 +		return true;
 +	}
 +#endif
