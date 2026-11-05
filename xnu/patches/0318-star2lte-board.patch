@@ -477,6 +477,76 @@ index 6d0b107..3dd6d07 100644
  
  
  #
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 195967c..0c890d5 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -335,6 +335,20 @@ arm_setup_pre_sign(void)
+  *		Function:		Runs on the boot CPU, once, on entry from iBoot.
+  */
+ 
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE) && !__ARM_PAN_AVAILABLE__
++/* S-Boot may hand over with PSTATE.PAN set; clear it where the core has PAN
++ * (ID_AA64MMFR1_EL1.PAN, bits 23:20). MSR PAN, #0 is UNDEFINED without it,
++ * hence the check and the raw encoding (the kernel is built for ARMv8.0). */
++static void
++star2lte_pan_off(void)
++{
++	uint64_t mmfr1 = __builtin_arm_rsr64("ID_AA64MMFR1_EL1");
++	if ((mmfr1 >> 20) & 0xf) {
++		__asm__ volatile (".inst 0xd500409f" ::: "memory");   /* msr PAN, #0 */
++	}
++}
++#endif
++
+ __startup_func
+ void
+ arm_init(
+@@ -348,6 +362,9 @@ arm_init(
+ 	unsigned int dt_entry_size = 0;
+ 
+ 	sweet_early_mark(1, "arm_init entered (MMU on)");
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE) && !__ARM_PAN_AVAILABLE__
++	star2lte_pan_off();
++#endif
+ 
+ 	arm_setup_pre_sign();
+ 
+@@ -685,6 +702,8 @@ arm_init_cpu(
+ {
+ #if __ARM_PAN_AVAILABLE__
+ 	__builtin_arm_wsr("pan", 1);
++#elif defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	star2lte_pan_off();
+ #endif
+ 
+ #ifdef __arm64__
+diff --git a/osfmk/arm64/proc_reg.h b/osfmk/arm64/proc_reg.h
+index e01c124..d31ec97 100644
+--- a/osfmk/arm64/proc_reg.h
++++ b/osfmk/arm64/proc_reg.h
+@@ -651,8 +651,20 @@
+ #define SCTLR_JOP_KEYS_DEFAULT  0
+ #endif
+ 
++/*
++ * A kernel built without PAN on a core that has it (STAR2LTE's Cortex-A55):
++ * SPAN = 0 sets PSTATE.PAN on every exception to EL1, so copyin() from a
++ * syscall faults forever (boot 7: launchd in mach_vm_allocate looping
++ * through bcopyin -> sleh_synchronous -> arm_fast_fault). Keep PAN as is.
++ */
++#if !__ARM_PAN_AVAILABLE__ && defined(ARM64_BOARD_CONFIG_STAR2LTE)
++#define SCTLR_SPAN_DEFAULT      SCTLR_PAN_UNCHANGED
++#else
++#define SCTLR_SPAN_DEFAULT      0
++#endif
++
+ #define SCTLR_EL1_DEFAULT \
+-	(SCTLR_RESERVED | SCTLR_UCI_ENABLED | SCTLR_nTWE_WFE_ENABLED | SCTLR_DZE_ENABLED | \
++	(SCTLR_RESERVED | SCTLR_SPAN_DEFAULT | SCTLR_UCI_ENABLED | SCTLR_nTWE_WFE_ENABLED | SCTLR_DZE_ENABLED | \
+ 	 SCTLR_I_ENABLED | SCTLR_SED_DISABLED | SCTLR_CP15BEN_ENABLED |                    \
+ 	 SCTLR_SA0_ENABLED | SCTLR_SA_ENABLED | SCTLR_C_ENABLED | SCTLR_M_ENABLED |        \
+ 	 SCTLR_CSEH_DEFAULT | SCTLR_DSSBS_DEFAULT |                                        \
 diff --git a/osfmk/arm64/sleh.c b/osfmk/arm64/sleh.c
 index 87fb8a8..6f9d3bb 100644
 --- a/osfmk/arm64/sleh.c
