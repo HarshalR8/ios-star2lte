@@ -107,6 +107,13 @@ contains `Widget`. Pack it with:
 Then try `cpus=8` (the M3s; iOS gets ARMv8.0-only features), and a scaled canvas for speed.
 The Mali-G72 GPU is the large next project (herolte's GPU code is ~3800 lines for Midgard).
 
+## Boot 16a (2026-11-06): blocking chronod
+
+Kernel run 42026576192 with `cpus=4 heronoexec=vmd,bluetoothd,chronod`: SpringBoard stayed on
+the Apple logo (1.2 fps, CPU nearly idle), waiting for the widget service. Touch stayed on the
+bus the whole boot (`moves=335 lost_reads=0`): boot 15's dropouts came with the CPU saturated.
+Block the widget extensions (`herowidgets=0`), not chronod.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
