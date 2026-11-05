@@ -323,17 +323,20 @@ index a591abc..ab9d510 100644
  		printf("HEROLTE UFS: host not ready (hce 0x%x hcs 0x%x)\n", hce, hcs);
  		return ENXIO;
 diff --git a/iokit/Kernel/arm/SweetCPU.cpp b/iokit/Kernel/arm/SweetCPU.cpp
-index b269868..28877c0 100644
+index b269868..daa3265 100644
 --- a/iokit/Kernel/arm/SweetCPU.cpp
 +++ b/iokit/Kernel/arm/SweetCPU.cpp
-@@ -91,7 +91,13 @@ SweetCPU::start(IOService *provider)
+@@ -91,7 +91,16 @@ SweetCPU::start(IOService *provider)
  	if (*(const uint32_t *)reg->getBytesNoCopy() != cpu->phys_id) {
  		return false;
  	}
 -#if defined(HEROLTE)
 +#if defined(STAR2LTE)
-+	/* The ADT describes the boot A55 only (mkadt_star2lte.py). */
-+	if (cpu->phys_id != A5XELTE_BOOT_MPIDR || topology->num_cpus != 1) {
++	/* Logical 0..3 = A55 MPIDR 0x0..0x3 (boot cluster), 4..7 = Mongoose M3
++	 * MPIDR 0x100..0x103, the order of the ADT /cpus nodes (mkadt_star2lte.py). */
++	uint32_t expected_mpidr = cpu->cpu_id < 4 ? A5XELTE_BOOT_MPIDR + cpu->cpu_id :
++	    0x100 + cpu->cpu_id - 4;
++	if (cpu->phys_id != expected_mpidr || topology->num_cpus > SWEET_SMP_MAX_CPUS) {
 +		panic(CPU_PORT_NAME " CPU: unsupported topology cpu=%u mpidr=0x%x count=%u",
 +		    cpu->cpu_id, cpu->phys_id, topology->num_cpus);
 +	}
@@ -341,12 +344,12 @@ index b269868..28877c0 100644
  	/* Logical 0..3 = A53 MPIDR 0x100..0x103 (boot cluster), 4..7 = Mongoose
  	 * MPIDR 0x0..0x3, the order of the ADT /cpus nodes (mkadt_herolte.py). */
  	uint32_t expected_mpidr = cpu->cpu_id < 4 ? A5XELTE_BOOT_MPIDR + cpu->cpu_id :
-@@ -119,7 +125,11 @@ SweetCPU::start(IOService *provider)
+@@ -119,7 +128,11 @@ SweetCPU::start(IOService *provider)
  	}
  #if defined(A5XELTE)
  #if defined(HEROLTE)
 +#if defined(STAR2LTE)
-+	cpuName = OSSymbol::withCStringNoCopy("Cortex-A55");
++	cpuName = OSSymbol::withCStringNoCopy(cpu->cpu_id < 4 ? "Cortex-A55" : "Mongoose M3");
 +#else
  	cpuName = OSSymbol::withCStringNoCopy(cpu->cpu_id < 4 ? "Cortex-A53" : "Mongoose");
 +#endif
@@ -433,10 +436,10 @@ index 6d0b107..3dd6d07 100644
  
  #
 diff --git a/pexpert/pexpert/arm64/A5XELTE.h b/pexpert/pexpert/arm64/A5XELTE.h
-index 8f9c8a2..6e4f823 100644
+index 8f9c8a2..bd419ac 100644
 --- a/pexpert/pexpert/arm64/A5XELTE.h
 +++ b/pexpert/pexpert/arm64/A5XELTE.h
-@@ -10,7 +10,27 @@
+@@ -10,7 +10,29 @@
  #define SWEET                         1
  
  /* Firmware scanout buffer and the earliest XNU marker (physical). */
@@ -447,9 +450,11 @@ index 8f9c8a2..6e4f823 100644
 +#pragma message("STAR2LTE board (Galaxy S9+)")
 +#define HEROLTE                       1
 +#define STAR2LTE                      1
-+/* Boot CPU: Cortex-A55, MPIDR 0x81000000 (MT bit, Aff0/Aff1 = 0). Only the
-+ * boot CPU is described until the secondary MPIDRs are read on the phone. */
-+#define SWEET_SMP_MAX_CPUS            1
++/* Logical 0..3: Cortex-A55 "ananke" MPIDR 0x0..0x3 (boot cluster, the boot
++ * CPU reads 0x81000000: MT bit, Aff0/Aff1 = 0); 4..7: Mongoose M3
++ * "meerkat" MPIDR 0x100..0x103 (live DT /cpus reg). PSCI CPU_ON, as
++ * herolte with the clusters swapped. */
++#define SWEET_SMP_MAX_CPUS            8
 +#define A5XELTE_FB_PA                 0xcc000000
 +#define A5XELTE_FB_WIDTH              1440
 +#define A5XELTE_FB_HEIGHT             2960

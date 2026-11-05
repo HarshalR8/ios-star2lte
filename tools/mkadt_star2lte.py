@@ -35,14 +35,19 @@ def build(dram):
     chosen = child(root, 'chosen')
     set_prop(chosen, 'firmware-version', mkadt.cstr('star2lte-entry'))
     set_prop(chosen, 'system-firmware-version', mkadt.cstr('star2lte-entry'))
-    cpus = child(root, 'cpus')
-    # Boot CPU: Cortex-A55, MPIDR 0x81000000 (probe 1); XNU compares Aff1/Aff0.
+    # Live DT /cpus: A55 "ananke" reg 0x0..0x3 (boot cluster; the boot CPU
+    # reads MPIDR 0x81000000, XNU compares Aff1/Aff0), Mongoose M3 "meerkat"
+    # reg 0x100..0x103. The herolte nodes keep their order (logical 0..3 the
+    # boot cluster, 4..7 the big cores); only reg, names and clocks change.
     # SweetCPU matches IONameMatch 'arm,cortex-a53', so that stays listed.
-    cpus.children = [n for n in cpus.children if n.prop('name') == mkadt.cstr('cpu0')]
-    cpu0 = cpus.children[0]
-    set_prop(cpu0, 'compatible', mkadt.cstr('arm,cortex-a55') +
-             mkadt.cstr('arm,cortex-a53') + mkadt.cstr('ARM,v8'))
-    set_prop(cpu0, 'reg', mkadt.u32(0))
+    cpus = child(root, 'cpus')
+    for logical, cpu in enumerate(cpus.children):
+        big = logical >= 4
+        set_prop(cpu, 'reg', mkadt.u32(0x100 + logical - 4 if big else logical))
+        set_prop(cpu, 'compatible', (mkadt.cstr('samsung,mongoose-m3') if big else
+                                     mkadt.cstr('arm,cortex-a55')) +
+                 mkadt.cstr('arm,cortex-a53') + mkadt.cstr('ARM,v8'))
+        set_prop(cpu, 'clock-frequency', mkadt.u32(2704000000 if big else 1794000000))
     arm_io = child(root, 'arm-io')
     set_prop(arm_io, 'device_type', mkadt.cstr('star2lte-io'))
     set_prop(arm_io, 'compatible', mkadt.cstr('samsung,exynos9810-io') + mkadt.cstr('arm-io'))
