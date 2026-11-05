@@ -1,27 +1,29 @@
-# Working on the HEROLTE port (Galaxy S7 SM-G930F, Exynos 8890)
+# Working on the star2lte port (Galaxy S9+ SM-G965F, Exynos 9810)
 
-- Read `HEROLTE_PROGRESS.md` and `docs/herolte-bringup.md` first; record new device evidence in the former. The A5XELTE files below are the reference implementation this port adapts.
-- XNU trials may write only BOOT (`/dev/block/platform/155a0000.ufs/by-name/BOOT`). Keep the stock BOOT and a TWRP backup of EFS (IMEI) off the phone; never write EFS, RECOVERY or the bootloader partitions. Confirm every other partition write with the user first.
+- Read `docs/star2lte-bringup.md` first: hardware map, device evidence, the fixes so far and the
+  plan. Record every new boot result there (what was flashed, what the log or photo showed) and
+  commit it. Keep observations and guesses apart.
+- The S9+ is the `STAR2LTE` variant of the HEROLTE kernel: all S9+ kernel changes live in
+  `xnu/patches/0318-star2lte-board.patch`, built on top of patches 0001-0317. Edit them in an
+  applied XNU tree (`research/xnu`, gitignored) and regenerate 0318 with `git diff`.
+- Prefer boot-args over rebuilds: new drivers and experiments get a boot-arg switch so a test
+  needs only `tools/star2lte-pack-xnu.sh` (seconds) instead of a kernel build (~17 min on GitHub
+  Actions, `xnu` workflow, `star2lte` branch).
+- Never print from exception or interrupt context (boot 5 panicked on it); record into memory and
+  print from the persistent log's heartbeat (`bsd/dev/herolte_ufs.c`).
 
-# Working on the A5XELTE fork
+## Device safety
 
-- For Samsung SM-A510F work, read `A5XELTE_PROGRESS.md` and `docs/a5xelte-migration-map.md` first. Record new device evidence in the former and commit completed changes. Keep private VM addresses, passwords, device dumps and downloaded Apple binaries out of git.
-- Preserve recovery p11, EFS p3 and the existing Linux BOOT checkpoint. Current XNU trials may write only the explicitly authorized BOOT p10; the donor's Xiaomi `fastboot` and USERDATA instructions are not A5XELTE instructions.
-- Keep build success, recovered kernel markers, physical screen reports and iOS runtime behavior as separate claims. `NOTES.md` below is SWEET donor history; do not edit it to imply Samsung behavior.
+- Trials write only BOOT (`/dev/block/platform/11120000.ufs/by-name/BOOT`, sda10) from TWRP, and
+  verify by reading it back. USERDATA (sda25) holds the iOS root; rewrite it only when the user
+  asks. Never write EFS, CPEFS, PARAM, RECOVERY or the bootloader partitions.
+- Stock BOOT, EFS, CPEFS, PARAM, DTB, DTBO and RECOVERY backups are in `backup/` (gitignored).
+- Keep Apple software, device dumps, logs and photos out of git (`research/`, `out/`, `backup/`).
+  The iOS root image is built only in a private repository (`ios-root` workflow).
 
-## Original SWEET contributor instructions (donor reference)
+## Test loop
 
-- Read `NOTES.md` before starting; it contains the project goal, hardware facts,
-  current blocker, local artifact locations and the next concrete action.
-- The user switches agents frequently. Update the active handoff in `NOTES.md`
-  after each milestone and before stopping. Record commits, CI run IDs, exact
-  build/boot results and unfinished work. Distinguish observations from guesses.
-- Commit completed changes. Use `gh` for GitHub Actions kernel builds and logs.
-  Local single-file cross-compiles are useful before spending a CI run.
-- Device bring-up uses temporary `fastboot boot` images. Preserve the Android
-  installation and partition backups. The user approved (2026-10-15) using
-  internal UFS for iOS and said Android may be deleted: the iOS root goes
-  into the existing `userdata` partition (no GPT changes). Keep bootloaders,
-  recovery, modem, persist and the backups intact, and confirm each
-  destructive step with the user before running it.
-- Keep device dumps, serial numbers and downloaded Apple artifacts out of git.
+1. Pack: `tools/star2lte-pack-xnu.sh KERNEL out/xnu-boot-N.img "BOOT ARGS"`.
+2. Flash from TWRP, read back, `adb reboot`; the user watches the screen.
+3. Back in TWRP: `HEROLTE_LOG_DEV=/dev/block/platform/11120000.ufs/by-name/USERDATA
+   tools/herolte-log-pull.py adb out/bootN.txt`. Symbolize kernel PCs with the kernel's LC_SYMTAB.
