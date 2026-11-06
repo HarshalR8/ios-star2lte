@@ -99,6 +99,105 @@ index 5e1f965..372c027 100644
  	if (hgl_noexec[0] == '\0') {
  		return false;
  	}
+diff --git a/bsd/dev/herolte_gpu.c b/bsd/dev/herolte_gpu.c
+index 65a82e8..59379f9 100644
+--- a/bsd/dev/herolte_gpu.c
++++ b/bsd/dev/herolte_gpu.c
+@@ -3049,4 +3049,94 @@ herolte_gpu_probe(void)
+ 		thread_deallocate(thread);
+ 	}
+ }
++
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++/*
++ * STAR2LTE (Galaxy S9+, Exynos 9810) Mali-G72 MP18, stage 1: power up and
++ * identify. From the 9810 kernel: mali@17500000 (0x5000), CMU_G3D
++ * 0x17400000, power domain pd-embedded_g3d (PMU 0x14060000 +0x4040
++ * CONFIGURATION, +0x4044 STATUS, local power mask 0xf) with need_smc
++ * 0x17410204. pmucal embedded_g3d_on: PLL_CON2_PLL_G3D (+0x148) =
++ * 0x30000003, PLL_CON0_PLL_G3D (+0x140) bit 4, PLL_CON0_MUX_CLKCMU_
++ * EMBEDDED_G3D_USER (+0x100) bit 4, CONFIGURATION = 0xf, wait STATUS =
++ * 0xf; then exynos_pd_tz_restore: SMC 0x82000410 (SMC_CMD_PREAPRE_PD_ONOFF)
++ * EXYNOS_WAKEUP_PD_DOWN (1), 0x17410204, which lets the secure world
++ * restore the DTZPC settings of the block.
++ *
++ * Boot-arg s9gpu: 0 (default) nothing; 1 report the domain, and the GPU
++ * registers if S-Boot left it on; 2 also power it on first. GPU registers
++ * are read only while STATUS says the domain is on.
++ */
++#define S9G_PMU_PA          0x14060000u
++#define S9G_PMU_CONF        0x4040u
++#define S9G_PMU_STAT        0x4044u
++#define S9G_CMU_PA          0x17400000u
++#define S9G_GPU_PA          0x17500000u
++#define S9G_SMC_PD_ONOFF    0x82000410u
++#define S9G_PD_WAKEUP       1u
++#define S9G_DTZPC           0x17410204u
++
++static int64_t
++s9g_smc(uint64_t a0, uint64_t a1, uint64_t a2)
++{
++	register uint64_t x0 __asm__("x0") = a0;
++	register uint64_t x1 __asm__("x1") = a1;
++	register uint64_t x2 __asm__("x2") = a2;
++	register uint64_t x3 __asm__("x3") = 0;
++	__asm__ volatile("smc #0" : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3) : :
++	    "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14", "x15",
++	    "x16", "x17", "memory");
++	return (int64_t)x0;
++}
++
++void star2lte_gpu_probe(void);
++void
++star2lte_gpu_probe(void)
++{
++	uint32_t mode = 0;
++	PE_parse_boot_argn("s9gpu", &mode, sizeof(mode));
++	if (mode == 0) {
++		return;
++	}
++	vm_offset_t pmu = ml_io_map(S9G_PMU_PA, 0x5000);
++	vm_offset_t cmu = ml_io_map(S9G_CMU_PA, 0x1000);
++	if (!pmu || !cmu) {
++		printf("STAR2LTE GPU: mapping failed\n");
++		return;
++	}
++	uint32_t stat = hg_rd(pmu, S9G_PMU_STAT);
++	printf("STAR2LTE GPU: G3D conf %#x status %#x; CMU pll_con0 %#x con2 %#x mux %#x\n",
++	    hg_rd(pmu, S9G_PMU_CONF), stat, hg_rd(cmu, 0x140), hg_rd(cmu, 0x148), hg_rd(cmu, 0x100));
++	if ((stat & 0xf) != 0xf && mode >= 2) {
++		hg_wr(cmu, 0x148, 0x30000003u);
++		hg_wr(cmu, 0x140, hg_rd(cmu, 0x140) | (1u << 4));
++		hg_wr(cmu, 0x100, hg_rd(cmu, 0x100) | (1u << 4));
++		hg_wr(pmu, S9G_PMU_CONF, (hg_rd(pmu, S9G_PMU_CONF) & ~0xfu) | 0xfu);
++		for (unsigned i = 0; i < 1000 && (hg_rd(pmu, S9G_PMU_STAT) & 0xf) != 0xf; i++) {
++			delay(100);
++		}
++		stat = hg_rd(pmu, S9G_PMU_STAT);
++		int64_t rc = ((stat & 0xf) == 0xf) ? s9g_smc(S9G_SMC_PD_ONOFF, S9G_PD_WAKEUP, S9G_DTZPC) : -1;
++		printf("STAR2LTE GPU: power on: status %#x, DTZPC restore smc %lld; CMU pll_con0 %#x\n",
++		    stat, rc, hg_rd(cmu, 0x140));
++	}
++	if ((stat & 0xf) != 0xf) {
++		printf("STAR2LTE GPU: domain off; not touching the GPU\n");
++		return;
++	}
++	vm_offset_t gpu = ml_io_map(S9G_GPU_PA, 0x5000);
++	if (!gpu) {
++		printf("STAR2LTE GPU: GPU mapping failed\n");
++		return;
++	}
++	uint32_t id = hg_rd(gpu, GPU_ID);
++	printf("STAR2LTE GPU: GPU_ID %#x (product %#x, 0x6001 = Mali-G72) L2 %#x tiler %#x mem %#x mmu %#x "
++	    "as %#x js %#x status %#x\n", id, id >> 16, hg_rd(gpu, L2_FEATURES), hg_rd(gpu, TILER_FEATURES),
++	    hg_rd(gpu, MEM_FEATURES), hg_rd(gpu, MMU_FEATURES), hg_rd(gpu, AS_PRESENT), hg_rd(gpu, JS_PRESENT),
++	    hg_rd(gpu, GPU_STATUS));
++	printf("STAR2LTE GPU: shader_present %#x:%#x tiler_present %#x l2_present %#x\n",
++	    hg_rd(gpu, SHADER_PRESENT_LO + 4), hg_rd(gpu, SHADER_PRESENT_LO), hg_rd(gpu, TILER_PRESENT_LO),
++	    hg_rd(gpu, 0x120));
++}
++#endif
+ #endif /* ARM64_BOARD_CONFIG_HEROLTE */
 diff --git a/bsd/dev/herolte_touch.c b/bsd/dev/herolte_touch.c
 index a2772e1..85aab02 100644
 --- a/bsd/dev/herolte_touch.c
@@ -992,10 +1091,10 @@ index d1099ff..eb1c011 100644
      "     'IOClass'         = HeroGPU;"
      "     'IOProviderClass' = IOResources;"
 diff --git a/iokit/bsddev/IOKitBSDInit.cpp b/iokit/bsddev/IOKitBSDInit.cpp
-index 10449ab..f5f1c54 100644
+index 10449ab..b5ac7f1 100644
 --- a/iokit/bsddev/IOKitBSDInit.cpp
 +++ b/iokit/bsddev/IOKitBSDInit.cpp
-@@ -772,9 +772,13 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
+@@ -772,9 +772,16 @@ IOFindBSDRoot( char * rootName, unsigned int rootNameSize,
  	}
  
  #if defined(ARM64_BOARD_CONFIG_A5XELTE)
@@ -1007,6 +1106,9 @@ index 10449ab..f5f1c54 100644
 +	/* sec_ts on the Exynos 9810 HSI2C_10; no Mali driver for the G72 yet. */
 +	extern void herolte_touch_probe(void);
 +	herolte_touch_probe();
++	/* Mali-G72 stage 1, boot-arg s9gpu (bsd/dev/herolte_gpu.c). */
++	extern void star2lte_gpu_probe(void);
++	star2lte_gpu_probe();
 +#elif defined(ARM64_BOARD_CONFIG_HEROLTE)
  	/* sec_ts on the Exynos 8890 HSI2C (bsd/dev/herolte_touch.c). */
  	extern void herolte_touch_probe(void);
