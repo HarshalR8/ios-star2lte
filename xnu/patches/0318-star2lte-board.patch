@@ -57,7 +57,7 @@ index 9576d7d..a8d63b6 100644
  static uint16_t
  a5_keys_sample(void)
 diff --git a/bsd/dev/herolte_gl.c b/bsd/dev/herolte_gl.c
-index 5e1f965..8562976 100644
+index 5e1f965..372c027 100644
 --- a/bsd/dev/herolte_gl.c
 +++ b/bsd/dev/herolte_gl.c
 @@ -75,7 +75,7 @@ herolte_gl_dyld_flags(void)
@@ -69,7 +69,7 @@ index 5e1f965..8562976 100644
  static int hgl_noexec_init;
  
  static bool
-@@ -96,6 +96,18 @@ herolte_noexec(const char *path)
+@@ -96,6 +96,29 @@ herolte_noexec(const char *path)
  	if (strcmp(base, "AegirPoster") == 0) {
  		return true;
  	}
@@ -82,6 +82,17 @@ index 5e1f965..8562976 100644
 +		hgl_widgets = 1;
 +	}
 +	if (hgl_widgets == 0 && strnstr(base, "Widget", strlen(base) + 1) != NULL) {
++		return true;
++	}
++	/* boot-arg heroposters=0: no wallpaper poster extensions (Collections,
++	 * Emoji, Weather, Unity, Extragalactic, Gradient...). Boot 16: they and
++	 * PosterBoard used 2-3 cores; PosterBoard itself keeps running. */
++	static int hgl_posters = -1;
++	if (hgl_posters < 0 && !PE_parse_boot_argn("heroposters", &hgl_posters, sizeof(hgl_posters))) {
++		hgl_posters = 1;
++	}
++	if (hgl_posters == 0 && strcmp(base, "PosterBoard") != 0 &&
++	    strnstr(base, "Poster", strlen(base) + 1) != NULL) {
 +		return true;
 +	}
 +#endif
