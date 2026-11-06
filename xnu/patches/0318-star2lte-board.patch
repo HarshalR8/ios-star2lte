@@ -837,6 +837,39 @@ index f1e25f9..67775ab 100644
  #endif
  	}
  	uint32_t hz = 10;
+diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
+index 61aaef9..8bdbf60 100644
+--- a/iokit/Kernel/arm/hid/SweetHID.cpp
++++ b/iokit/Kernel/arm/hid/SweetHID.cpp
+@@ -434,7 +434,15 @@ SweetHIDTouch::start(IOService *provider)
+ 	}
+ 	int native = 0;
+ 	PE_parse_boot_argn("sweetfb_native", &native, sizeof(native));
+-#if defined(ARM64_BOARD_CONFIG_HEROLTE)
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	/* herolte_touch.c reports 1440x2960 panel pixels. Native or scaled, the
++	 * S9+ display fills the whole panel (AppleCLCD's CPU scaledCopy has no
++	 * bars), so normalize over the panel. Boot 17: with herolte's 1440x2560
++	 * here taps landed below the finger. */
++	(void)native;
++	fPanelW = fLogicalW = 1440;
++	fPanelH = fLogicalH = 2960;
++#elif defined(ARM64_BOARD_CONFIG_HEROLTE)
+ 	/* sec_ts reports 1440x2560 panel pixels; same geometry as AppleCLCD. */
+ 	fPanelW = 1440;
+ 	fPanelH = 2560;
+@@ -469,7 +477,10 @@ SweetHIDTouch::start(IOService *provider)
+ 	fOffY = (fLogicalH - fPanelH) / 2;
+ 	/* The digitizer covers the main display (backboardd maps it 1:1). */
+ 	setProperty("DisplayIntegrated", kOSBooleanTrue);
+-#if defined(ARM64_BOARD_CONFIG_HEROLTE)
++#if defined(ARM64_BOARD_CONFIG_STAR2LTE)
++	setProperty("SurfaceWidth", (unsigned long long)(68 << 16), 32);	/* mm, 16.16: 6.2" 18.5:9 */
++	setProperty("SurfaceHeight", (unsigned long long)(141 << 16), 32);
++#elif defined(ARM64_BOARD_CONFIG_HEROLTE)
+ 	setProperty("SurfaceWidth", (unsigned long long)(64 << 16), 32);	/* mm, 16.16 */
+ 	setProperty("SurfaceHeight", (unsigned long long)(113 << 16), 32);
+ #else
 diff --git a/iokit/KernelConfigTables.cpp b/iokit/KernelConfigTables.cpp
 index d1099ff..eb1c011 100644
 --- a/iokit/KernelConfigTables.cpp
