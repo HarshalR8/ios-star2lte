@@ -114,6 +114,18 @@ the Apple logo (1.2 fps, CPU nearly idle), waiting for the widget service. Touch
 bus the whole boot (`moves=335 lost_reads=0`): boot 15's dropouts came with the CPU saturated.
 Block the widget extensions (`herowidgets=0`), not chronod.
 
+## Boot 16 (2026-11-06): widgets blocked, still slow
+
+Kernel run 42127332733, `cpus=4 herowidgets=0 heronoexec=vmd,bluetoothd`: taps work, the UI is
+very slow. 20 programs refused. sweettop: PosterBoard 100-224%, backboardd 88-188%, poster
+extensions 10-45% each (CollectionsPoster, EmojiPosterExtension, WeatherPoster,
+UnityPosterExtension, ExtragalacticPoster, GradientPoster); 3.4-8.9 fps at native 1440x2960.
+Touch stable (`lost_reads=0`).
+
+Next (kernel with `heroposters=0`): the iPhone XR canvas (`ADT_ARGS=--scale2`, boot-args
+`sweetfb_scale=1 sweetfb_lw=828 sweetfb_lh=1792` instead of `sweetfb_native=1`, saved in
+`out/ios-bootargs-xr.txt`) and poster extensions blocked.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
