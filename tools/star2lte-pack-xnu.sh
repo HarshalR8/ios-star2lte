@@ -9,7 +9,8 @@ kernel=$1; out=$2; extra=${3:-}
 : "${CROSS:=$(ls -d "$PWD"/toolchain/*/bin)/aarch64-none-elf-}"
 (cd shim/star2lte && CROSS=$CROSS sh build.sh >/dev/null)
 mkdir -p out
-python3 tools/mkadt_star2lte.py out/star2lte.adt
+# ADT_ARGS="--scale2" for the iPhone XR canvas (see mkadt_star2lte.py).
+python3 tools/mkadt_star2lte.py out/star2lte.adt ${ADT_ARGS:-}
 # No rd=: the S9+ UFS driver is not ported, so XNU should stop at the root
 # device. Console stays on (no a5fb_noconsole) and DECON sync is off.
 # cpus=1 unless the extra arguments choose (XNU takes the first cpus=).

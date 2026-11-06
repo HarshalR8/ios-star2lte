@@ -24,11 +24,14 @@ GICD, GICC = 0x10101000, 0x10102000
 UFS_BASE = 0x11120000
 
 
-def build(dram):
+def build(dram, scale=3):
     if not os.path.exists(mkadt.D22AP_ADT):
         # Enough for the kernel; SpringBoard needs the real /product.
         mkadt.d22ap_product = lambda path=None: [('artwork-display-gamut', mkadt.cstr('sRGB'))]
-    root = mkadt_herolte.build((FB_WIDTH, FB_HEIGHT), dram, 3)
+    # scale 2 (--scale2): a whole iPhone XR screen, 828x1792 @2x, 2.9x fewer
+    # pixels for the CPU renderer than the panel; AppleCLCD stretches it with
+    # sweetfb_scale=1 sweetfb_lw=828 sweetfb_lh=1792 (about 5% taller).
+    root = mkadt_herolte.build((FB_WIDTH, FB_HEIGHT), dram, scale)
     set_prop(root, 'compatible', mkadt.cstr('D22AP') + mkadt.cstr('iPhone10,3') +
              mkadt.cstr('samsung,a5xelte') + mkadt.cstr('samsung,star2lte') +
              mkadt.cstr('samsung,exynos9810') + mkadt.cstr('AppleARM'))
@@ -67,9 +70,12 @@ if __name__ == '__main__':
     parser.add_argument('output', type=Path)
     parser.add_argument('--bank2-mb', type=int, default=1024,
                         help='MiB of the second bank for XNU (as herolte, 1024)')
+    parser.add_argument('--scale2', action='store_true',
+                        help='iPhone XR canvas 828x1792 @2x (boot-args sweetfb_scale=1 '
+                             'sweetfb_lw=828 sweetfb_lh=1792, no sweetfb_native)')
     args = parser.parse_args()
     if not 0 < args.bank2_mb <= BANK2_SIZE >> 20:
         sys.exit('--bank2-mb out of range')
-    blob = adt.serialize(build((BANK2_BASE, args.bank2_mb << 20)))
+    blob = adt.serialize(build((BANK2_BASE, args.bank2_mb << 20), 2 if args.scale2 else 3))
     args.output.write_bytes(blob)
     print(f'{args.output}: {len(blob)} bytes')
