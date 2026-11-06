@@ -820,7 +820,7 @@ index b269868..daa3265 100644
  	cpuName = OSSymbol::withCStringNoCopy("Cortex-A53");
  #endif
 diff --git a/iokit/Kernel/arm/SweetFramebuffer.cpp b/iokit/Kernel/arm/SweetFramebuffer.cpp
-index f1e25f9..67775ab 100644
+index f1e25f9..13fc02c 100644
 --- a/iokit/Kernel/arm/SweetFramebuffer.cpp
 +++ b/iokit/Kernel/arm/SweetFramebuffer.cpp
 @@ -315,7 +315,13 @@ AppleCLCD::start(IOService *provider)
@@ -837,6 +837,104 @@ index f1e25f9..67775ab 100644
  #endif
  	}
  	uint32_t hz = 10;
+@@ -594,7 +600,17 @@ struct sweet_fb_copy_job {
+ 	uint64_t        dstStride, srcStride;
+ 	size_t          rowBytes;
+ 	int32_t         rows;
++	/* scaledCopy (column != NULL): panel rows py0.. from a srcW x srcH
++	 * logical rect, rowBytes = panel width x 4. */
++	const uint16_t  *column;
++	int32_t         srcW, srcH, py0, dy;
++	uint32_t        fbH, logH;
+ };
++/* Cached row buffers per band: source row in, scaled row out. Boot 17: the
++ * per-pixel scaledCopy from the IOSurface into write-combined panel memory
++ * (and re-reading panel rows for repeats) took 56 ms a frame. */
++static uint32_t sweet_fb_scale_src[SWEET_FB_COPY_MAX_HELPERS + 1][2048];
++static uint32_t sweet_fb_scale_line[SWEET_FB_COPY_MAX_HELPERS + 1][2048];
+ static IOLock *sweet_fb_copy_lock;
+ static struct sweet_fb_copy_job sweet_fb_copy;
+ static uint32_t sweet_fb_copy_helpers;
+@@ -606,6 +622,23 @@ sweet_fb_copy_band(const struct sweet_fb_copy_job *job, uint32_t band, uint32_t
+ {
+ 	int32_t first = (int32_t)((int64_t)job->rows * band / bands);
+ 	int32_t last = (int32_t)((int64_t)job->rows * (band + 1) / bands);
++	if (job->column != NULL) {
++		uint32_t *sbuf = sweet_fb_scale_src[band], *line = sweet_fb_scale_line[band];
++		int32_t pw = (int32_t)(job->rowBytes / 4), previous = -1;
++		for (int32_t y = first; y < last; y++) {
++			int32_t r = (job->py0 + y) * (int32_t)job->logH / (int32_t)job->fbH - job->dy;
++			r = r < 0 ? 0 : (r >= job->srcH ? job->srcH - 1 : r);
++			if (r != previous) {
++				memcpy(sbuf, (const void *)(job->src + (uint64_t)r * job->srcStride), (size_t)job->srcW * 4);
++				for (int32_t x = 0; x < pw; x++) {
++					line[x] = sbuf[job->column[x]];
++				}
++				previous = r;
++			}
++			memcpy((void *)(job->dst + (uint64_t)y * job->dstStride), line, job->rowBytes);
++		}
++		return;
++	}
+ 	for (int32_t y = first; y < last; y++) {
+ 		memcpy((void *)(job->dst + (uint64_t)y * job->dstStride),
+ 		    (const void *)(job->src + (uint64_t)y * job->srcStride), job->rowBytes);
+@@ -664,10 +697,9 @@ sweet_fb_copy_init(void)
+ 
+ /* Copies rows; returns after every band is done. */
+ static void
+-sweet_fb_copy_rows(uintptr_t dst, uint64_t dstStride, uintptr_t src, uint64_t srcStride,
+-    size_t rowBytes, int32_t rows)
++sweet_fb_copy_run(const struct sweet_fb_copy_job &job)
+ {
+-	struct sweet_fb_copy_job job = { dst, src, dstStride, srcStride, rowBytes, rows };
++	int32_t rows = job.rows;
+ 	uint32_t helpers = sweet_fb_copy_helpers;
+ 	if (helpers == 0 || rows < 64) {
+ 		sweet_fb_copy_band(&job, 0, 1);
+@@ -688,6 +720,14 @@ sweet_fb_copy_rows(uintptr_t dst, uint64_t dstStride, uintptr_t src, uint64_t sr
+ 	}
+ 	IOLockUnlock(sweet_fb_copy_lock);
+ }
++
++static void
++sweet_fb_copy_rows(uintptr_t dst, uint64_t dstStride, uintptr_t src, uint64_t srcStride,
++    size_t rowBytes, int32_t rows)
++{
++	struct sweet_fb_copy_job job = { dst, src, dstStride, srcStride, rowBytes, rows };
++	sweet_fb_copy_run(job);
++}
+ #endif
+ 
+ /* Copy each enabled layer's surface into the panel memory (no scaling). */
+@@ -760,6 +800,27 @@ AppleCLCD::scaledCopy(uintptr_t src, uint32_t srcRowBytes, int32_t dx, int32_t d
+ 		int32_t c = (px0 + x) * (int32_t)fLogicalW / (int32_t)fWidth - dx;
+ 		column[x] = (uint16_t)(c < 0 ? 0 : (c >= w ? w - 1 : c));
+ 	}
++#if defined(ARM64_BOARD_CONFIG_HEROLTE)
++	/* Row-buffered and split over the copy helpers (sweet_fb_copy_band). */
++	if (w <= 2048 && sweet_fb_copy_lock != NULL) {
++		struct sweet_fb_copy_job job = {};
++		job.dst = fPixels + (uint64_t)py0 * fRowBytes + (uint64_t)px0 * 4;
++		job.src = src;
++		job.dstStride = fRowBytes;
++		job.srcStride = srcRowBytes;
++		job.rowBytes = (size_t)pw * 4;
++		job.rows = py1 - py0;
++		job.column = column;
++		job.srcW = w;
++		job.srcH = h;
++		job.py0 = py0;
++		job.dy = dy;
++		job.fbH = fHeight;
++		job.logH = fLogicalH;
++		sweet_fb_copy_run(job);
++		return (uint64_t)pw * (uint64_t)(py1 - py0) * 4;
++	}
++#endif
+ 	int32_t previous = -1;
+ 	uint32_t *prevRow = NULL;
+ 	for (int32_t py = py0; py < py1; py++) {
 diff --git a/iokit/Kernel/arm/hid/SweetHID.cpp b/iokit/Kernel/arm/hid/SweetHID.cpp
 index 61aaef9..8bdbf60 100644
 --- a/iokit/Kernel/arm/hid/SweetHID.cpp
