@@ -148,6 +148,14 @@ Stages: 1 power up and read GPU_ID (`s9gpu=1/2`, commit c1b60cd); 2 MMU (AArch64
 a null/write-value job; 3 scaling the display through the GPU (`sweetfb_gpu`); 4 iOS rendering
 through Mesa/EAGL.
 
+## Boot 18 (2026-11-06): fast scaler, accurate touch
+
+Kernel run 42138091788, XR canvas, `cpus=4`: taps land under the finger (1440x2960 HID).
+scaledCopy 56 ms -> 8.5 ms a frame; up to 19.8 fps while interacting. backboardd 250-280%
+(software compositing, the GPU's job now), ReportCrash 94-172% for the speech synthesizers
+(SiriTTSSynthesizer, MacinTalkAUSP, KonaSynthesizer abort, sig 6). Next boot adds
+`ReportCrash,MacinTalkAUSP,KonaSynthesizer` to heronoexec.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
