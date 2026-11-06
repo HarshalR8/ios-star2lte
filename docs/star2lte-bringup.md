@@ -126,6 +126,28 @@ Next (kernel with `heroposters=0`): the iPhone XR canvas (`ADT_ARGS=--scale2`, b
 `sweetfb_scale=1 sweetfb_lw=828 sweetfb_lh=1792` instead of `sweetfb_native=1`, saved in
 `out/ios-bootargs-xr.txt`) and poster extensions blocked.
 
+## Boot 17 and the GPU plan (2026-11-06)
+
+Boot 17 (XR canvas, `heroposters=0`): much smoother but 10 fps with `avg_copy_us 55915`:
+the kernel's scaledCopy was the limit (backboardd only 33%). Rewritten row-buffered on the copy
+helpers. Taps landed low: SweetHIDTouch normalized over herolte's 1440x2560; now 1440x2960.
+
+**Mali-G72 MP18 (Bifrost, Job Manager), from the 9810 kernel:**
+
+- Registers `mali@17500000` (0x5000), IRQs JOB/MMU/GPU; CMU_G3D `0x17400000`.
+- Power domain `pd-embedded_g3d`: pmucal `embedded_g3d_on` = PLL_CON2_PLL_G3D (+0x148)
+  `0x30000003`, PLL_CON0_PLL_G3D (+0x140) bit 4, mux (+0x100) bit 4, PMU `0x14064040` = 0xf,
+  wait `0x14064044` = 0xf; then `exynos_pd_tz_restore`: SMC `0x82000410` (1, `0x17410204`).
+- DVFS 260-572 MHz through ACPM (`ACPM_DVFS_G3D`), default 800 mV.
+- Versus herolte's Midgard code (`bsd/dev/herolte_gpu.c`, ~3800 lines with HeroGPU.cpp and
+  herolte_gl.c): the Job Manager submit path should carry over; the MMU must switch from
+  Mali-LPAE (`TRANSTAB | 7`, leaf `0x2c1`) to the AArch64 format with `AS_TRANSCFG`;
+  power/clock/addresses are new; Mesa Panfrost must accept the G72's GPU_ID.
+
+Stages: 1 power up and read GPU_ID (`s9gpu=1/2`, commit c1b60cd); 2 MMU (AArch64 tables) and
+a null/write-value job; 3 scaling the display through the GPU (`sweetfb_gpu`); 4 iOS rendering
+through Mesa/EAGL.
+
 ## Hardware map (from sources, unverified on the phone)
 
 Sources: `LineageOS/android_kernel_samsung_universal9810` branch
